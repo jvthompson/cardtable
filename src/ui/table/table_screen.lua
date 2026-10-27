@@ -63,6 +63,7 @@ function T.new(opts)
   self.rulebook = require("src.ui.screens.rulebook_viewer").new(self.game)
   self.lastPreviewAt = 0
   self.playmats, self.playmatIndex = {}, 0
+  self.perPlayerPlaymats = false
   self:loadPlaymats()
   self.library = filterBar.newState(self.game)
   -- Box selection: selected card instance ids (whole piles) and token ids.
@@ -406,6 +407,10 @@ function T:cyclePlaymat()
   if self.playmatIndex > #self.playmats then self.playmatIndex = 0 end
 end
 
+function T:togglePerPlayerPlaymats()
+  self.perPlayerPlaymats = not self.perPlayerPlaymats
+end
+
 ---------------------------------------------------------------------------
 -- Hovered-card actions (hotkeys)
 ---------------------------------------------------------------------------
@@ -584,6 +589,7 @@ function T:keypressed(key, _, isrepeat)
     if key == "home" or key == "h" then self.camX, self.camY, self.zoom = 0, 0, 1
     elseif key == "f1" then self.bordersHidden = not self.bordersHidden
     elseif key == "f2" then self.colorTintEnabled = not self.colorTintEnabled
+    elseif key == "f6" then self:togglePerPlayerPlaymats()
     elseif key == "f12" then self:cyclePlaymat()
     elseif key == "l" then self:toggleLog()
     elseif key == "r" and ctrlDown() then self:toggleRulebook()
@@ -599,6 +605,7 @@ function T:keypressed(key, _, isrepeat)
     self.camX, self.camY, self.zoom = 0, 0, 1
   elseif key == "f1" then self.bordersHidden = not self.bordersHidden
   elseif key == "f2" then self.colorTintEnabled = not self.colorTintEnabled
+  elseif key == "f6" then self:togglePerPlayerPlaymats()
   elseif key == "f12" then self:cyclePlaymat()
   elseif key == "l" then self:toggleLog()
   elseif key == "r" and ctrlDown() then self:toggleRulebook()

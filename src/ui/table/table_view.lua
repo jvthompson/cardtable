@@ -259,10 +259,19 @@ end
 -- Table area
 ---------------------------------------------------------------------------
 
-local function drawCenterMarker(T)
-  local left, top = (WW - 1280) / 2, (WH - 720) / 2
+-- A standard playing card is 2.5in wide, so CW world-units == 2.5in gives us
+-- the table's px-per-inch scale. A playmat is typically 24in x 12in.
+local PX_PER_INCH = CW / 2.5
+local PLAYMAT_W, PLAYMAT_H = 24 * PX_PER_INCH, 12 * PX_PER_INCH
+
+-- The original (pre-playmat-sizing) single center marker, kept as-is.
+local SINGLE_MARKER_W, SINGLE_MARKER_H = 1280, 720
+
+-- Draws a marker rect sized markW x markH with its top-left world corner at
+-- (left, top).
+local function drawPlaymatRect(T, left, top, markW, markH)
   local x, y = V.worldToScreen(T, left, top)
-  local w, h = 1280 * T.zoom, 720 * T.zoom
+  local w, h = markW * T.zoom, markH * T.zoom
   local r = 32 * T.zoom
   local mat = T.playmatIndex >= 1 and T.playmats[T.playmatIndex]
   if mat then
@@ -283,6 +292,45 @@ local function drawCenterMarker(T)
   love.graphics.setLineWidth(4 * T.zoom)
   love.graphics.rectangle("line", x + 2 * T.zoom, y + 2 * T.zoom, w - 4 * T.zoom, h - 4 * T.zoom, r, r)
   love.graphics.setLineWidth(1)
+end
+
+-- Per-player markers (toggled with F6): one playmat per player, grouped into
+-- the same near/far rows used for hand bands, with 2x card-width padding
+-- between mats side by side and 0.5x card-width padding between the near
+-- and far rows.
+local MAT_GAP_X, MAT_GAP_Y = 2 * CW, CW / 2
+
+-- Left (world-x) of each of `count` mats, evenly spaced and centered.
+local function rowMatLefts(count)
+  local rowW = count * PLAYMAT_W + (count - 1) * MAT_GAP_X
+  local startLeft = (WW - rowW) / 2
+  local lefts = {}
+  for i = 0, count - 1 do lefts[#lefts + 1] = startLeft + i * (PLAYMAT_W + MAT_GAP_X) end
+  return lefts
+end
+
+local function drawPerPlayerMarkers(T)
+  local rows = T.derived.rows
+  local nTop, nBottom = #rows.topRow, #rows.bottomRow
+  if nTop == 0 and nBottom == 0 then return end
+  local gapY = (nTop > 0 and nBottom > 0) and MAT_GAP_Y or 0
+  local blockH = (nTop > 0 and PLAYMAT_H or 0) + gapY + (nBottom > 0 and PLAYMAT_H or 0)
+  local topRowTop = (WH - blockH) / 2
+  if nTop > 0 then
+    for _, left in ipairs(rowMatLefts(nTop)) do drawPlaymatRect(T, left, topRowTop, PLAYMAT_W, PLAYMAT_H) end
+  end
+  if nBottom > 0 then
+    local bottomRowTop = nTop > 0 and (topRowTop + PLAYMAT_H + gapY) or topRowTop
+    for _, left in ipairs(rowMatLefts(nBottom)) do drawPlaymatRect(T, left, bottomRowTop, PLAYMAT_W, PLAYMAT_H) end
+  end
+end
+
+local function drawCenterMarker(T)
+  if T.perPlayerPlaymats then
+    drawPerPlayerMarkers(T)
+    return
+  end
+  drawPlaymatRect(T, (WW - SINGLE_MARKER_W) / 2, (WH - SINGLE_MARKER_H) / 2, SINGLE_MARKER_W, SINGLE_MARKER_H)
 end
 
 local function drawArrow(fromX, fromY, toX, toY, col)
