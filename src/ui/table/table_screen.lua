@@ -44,6 +44,7 @@ local DRAG_THRESHOLD = 4
 local PREVIEW_THROTTLE = 0.05
 local PAN_SPEED = 600
 local MIN_ZOOM, MAX_ZOOM = 0.5, 2.5
+local COLOR_TOKEN_WIDGET = { kind = "token", backgroundColor = models.defaultBoardWidgetBackgroundColor }
 
 function T.new(opts)
   local self = setmetatable({}, T)
@@ -58,6 +59,7 @@ function T.new(opts)
   self.colorTintEnabled = true
   self.tabDown, self.spaceDown, self.altDown = false, false, false
   self.gameMenuOpen, self.logOpen, self.logAnim, self.libraryOpen = false, false, 0, false
+  self.tokenPickerOpen = false
   self.rulebookOpen = false
   self.chatOpen, self.chatAnim, self.chatText, self.seenChat = false, 0, "", 0
   self.rulebook = require("src.ui.screens.rulebook_viewer").new(self.game)
@@ -65,6 +67,8 @@ function T.new(opts)
   self.playmats, self.playmatIndex = {}, 0
   self.perPlayerPlaymats = false
   self:loadPlaymats()
+  self.tokenImages = {}
+  self:loadTokenImages()
   self.library = filterBar.newState(self.game)
   -- Box selection: selected card instance ids (whole piles) and token ids.
   -- selRoots/selCount are rebuilt each frame by refreshSelection().
@@ -191,7 +195,7 @@ end
 
 -- A token that can be selected: yours and loose on the table.
 function T:isSelectableToken(w)
-  return w ~= nil and w.kind == "token" and w.zoneId == nil and w.attachedCardId == nil
+  return w ~= nil and (w.kind == "token" or w.kind == "imageToken") and w.zoneId == nil and w.attachedCardId == nil
     and w.ownerId == self.session:actingPlayerId()
 end
 
@@ -315,12 +319,12 @@ function T:moveItemsBy(rootIds, tokenIds, dwx, dwy)
   -- The primary is a pile root listed among the passengers too, so its
   -- whole pile travels with it.
   if primary then C:moveGroup(primary, inBounds, pfx, pfy) end
-  local half = V.tokenSize / 2
   for _, id in ipairs(tokenIds) do
     local w = models.TableState.widgetById(self.state, id)
     if w then
+      local ww, wh = V.widgetSize(self, w.kind)
       local wx, wy = V.canonicalToWorld(self, w.x, w.y)
-      C:moveWidget(id, V.worldToCanonical(self, selection.clampWorldCenter(wx + dwx, wy + dwy, half, half)))
+      C:moveWidget(id, V.worldToCanonical(self, selection.clampWorldCenter(wx + dwx, wy + dwy, ww / 2, wh / 2)))
     end
   end
 end
@@ -399,6 +403,25 @@ function T:loadPlaymats()
   end
   util.shuffle(list)
   self.playmats = list
+end
+
+---------------------------------------------------------------------------
+-- Token images (<gameFolder>/tokens, picked from the "Tokens" board menu)
+---------------------------------------------------------------------------
+
+function T:loadTokenImages()
+  local folder = self.game.folderPath
+  if not folder then return end
+  local dir = fs.join(folder, "tokens")
+  local list = {}
+  for _, e in ipairs(fs.list(dir) or {}) do
+    local ext = fs.extension(e.name)
+    if not e.isDir and (ext == ".png" or ext == ".jpg" or ext == ".jpeg" or ext == ".webp") then
+      list[#list + 1] = { name = fs.stripExtension(e.name), file = e.name, path = fs.join(dir, e.name) }
+    end
+  end
+  table.sort(list, function(a, b) return a.name:lower() < b.name:lower() end)
+  self.tokenImages = list
 end
 
 function T:cyclePlaymat()
@@ -871,11 +894,12 @@ function T:handleWidgetDrop(widgetId, kind, cx, cy)
   self.controller:moveWidget(widgetId, fx, fy)
 end
 
-function T:handleTokenDrop(widgetId, cx, cy)
+function T:handleTokenDrop(widgetId, kind, cx, cy)
   local ctrl = love.keyboard.isDown("lctrl", "rctrl")
   local wx, wy = V.screenToWorld(self, cx, cy)
   local target = self:findStackTarget(widgetId, wx, wy)
-  local fx, fy = V.screenToCanonicalClamped(self, cx, cy, V.tokenSize / 2, V.tokenSize / 2)
+  local ww, wh = V.widgetSize(self, kind)
+  local fx, fy = V.screenToCanonicalClamped(self, cx, cy, ww / 2, wh / 2)
   if ctrl then
     if not self:isOverTable(cx, cy) then return end
     local newId = uuid.v4()
@@ -886,7 +910,7 @@ function T:handleTokenDrop(widgetId, cx, cy)
   if target then
     self.controller:attachWidgetToCard(widgetId, target.instanceId, fx, fy)
   else
-    self:handleWidgetDrop(widgetId, "token", cx, cy)
+    self:handleWidgetDrop(widgetId, kind, cx, cy)
   end
 end
 
@@ -896,6 +920,20 @@ function T:handleLibraryDrop(definitionId, cx, cy)
   local hw, hh = selection.halfExtents(CW, CH, def and CR.orientationTurns(def.orientation) or 0)
   local fx, fy = V.screenToCanonicalClamped(self, cx, cy, hw, hh)
   self.controller:createCardFromLibrary(definitionId, fx, fy)
+end
+
+function T:handleImageTokenDrop(imageFile, cx, cy)
+  if not self:isOverTable(cx, cy) then return end
+  local ww, wh = V.widgetSize(self, "imageToken")
+  local fx, fy = V.screenToCanonicalClamped(self, cx, cy, ww / 2, wh / 2)
+  self.controller:createWidget(uuid.v4(), "imageToken", fx, fy, imageFile)
+end
+
+function T:handleNewTokenDrop(cx, cy)
+  if not self:isOverTable(cx, cy) then return end
+  local ww, wh = V.widgetSize(self, "token")
+  local fx, fy = V.screenToCanonicalClamped(self, cx, cy, ww / 2, wh / 2)
+  self.controller:createWidget(uuid.v4(), "token", fx, fy)
 end
 
 ---------------------------------------------------------------------------
@@ -1005,9 +1043,13 @@ function T:endDrag()
   elseif d.kind == "widget" then
     self:handleWidgetDrop(src.widget.instanceId, src.widget.kind, cx, cy)
   elseif d.kind == "token" then
-    self:handleTokenDrop(src.widget.instanceId, cx, cy)
+    self:handleTokenDrop(src.widget.instanceId, src.widget.kind, cx, cy)
   elseif d.kind == "library" then
     self:handleLibraryDrop(src.definitionId, cx, cy)
+  elseif d.kind == "imageToken" then
+    self:handleImageTokenDrop(src.imageFile, cx, cy)
+  elseif d.kind == "newToken" then
+    self:handleNewTokenDrop(cx, cy)
   elseif d.kind == "selection" then
     self:handleSelectionDrop(d, cx, cy)
   end
@@ -1066,6 +1108,10 @@ function T:drawDragFeedback()
     self:drawWidgetFace(d.src.widget, cx, cy, s)
   elseif d.kind == "library" then
     CR.draw({ def = d.src.def, faceUp = true, cx = cx, cy = cy, cardBacks = self.game.cardBacks })
+  elseif d.kind == "imageToken" then
+    self:drawWidgetFace({ kind = "imageToken", imagePath = d.src.imageFile }, cx, cy, s)
+  elseif d.kind == "newToken" then
+    self:drawWidgetFace(COLOR_TOKEN_WIDGET, cx, cy, s)
   end
 end
 
@@ -1073,8 +1119,8 @@ function T:drawWidgetFace(w, cx, cy, s)
   local ww, wh = V.widgetSize(self, w.kind)
   if w.kind == "simpleCounter" then
     V.counterFace(w, cx - ww * s / 2, cy - wh * s / 2, ww * s, 1)
-  elseif w.kind == "token" then
-    V.tokenFace(w, cx, cy, ww * s, 1)
+  elseif w.kind == "token" or w.kind == "imageToken" then
+    V.tokenFace(self, w, cx, cy, ww * s, 1)
   elseif w.kind == "packGenerator" then
     V.packFace(self, w, cx - ww * s / 2, cy - wh * s / 2, ww * s, 1)
   elseif w.kind == "deckBuilder" then
@@ -1208,7 +1254,6 @@ function T:openBoardMenu(mx, my)
   local function create(kind) return function() C:createWidget(uuid.v4(), kind, fx, fy) end end
   local widgetItems = {
     { label = "Simple Counter", onSelect = create("simpleCounter") },
-    { label = "Token", onSelect = create("token") },
   }
   -- Collection-mode games only use cards players own.
   if not self.collectionMode then
@@ -1217,7 +1262,8 @@ function T:openBoardMenu(mx, my)
   if #models.GameDefinition.deckBuildingZones(self.game) > 0 then
     widgetItems[#widgetItems + 1] = { label = "Deck Widget", onSelect = create("deckBuilder") }
   end
-  local menu = { { label = "Widgets", submenu = widgetItems } }
+  local menu = { { label = "Tokens", onSelect = function() self.tokenPickerOpen = true end },
+    { label = "Widgets", submenu = widgetItems } }
   if not self.collectionMode then
     menu[#menu + 1] = { label = "Card Library", onSelect = function() self.libraryOpen = true end }
   end
@@ -1270,10 +1316,12 @@ function T:openItemMenu(item, mx, my)
     self:openCounterMenu(mx, my, item.widget, false)
     return true
   elseif k == "token" and item.interactable then
-    overlays.menu(mx, my, {
-      { label = "Set Color", onSelect = function() self:promptSetTokenColor(item.widget) end },
-      { label = "Delete", onSelect = function() C:deleteWidget(item.widget.instanceId) end },
-    })
+    local menu = {}
+    if item.widget.kind ~= "imageToken" then
+      menu[#menu + 1] = { label = "Set Color", onSelect = function() self:promptSetTokenColor(item.widget) end }
+    end
+    menu[#menu + 1] = { label = "Delete", onSelect = function() C:deleteWidget(item.widget.instanceId) end }
+    overlays.menu(mx, my, menu)
     return true
   elseif k == "packGenerator" and item.interactable then
     local menu = {}
@@ -1487,7 +1535,7 @@ function T:processInput()
 
   -- Wheel zoom over the table.
   local _, wy = ui.wheel()
-  if free and wy ~= 0 and self:isOverTable(mx, my) and not self.libraryOpen then
+  if free and wy ~= 0 and self:isOverTable(mx, my) and not self.libraryOpen and not self.tokenPickerOpen then
     local old = self.zoom
     local new = util.clamp(old * math.exp(wy * 0.1), MIN_ZOOM, MAX_ZOOM)
     if new ~= old then
@@ -1511,7 +1559,7 @@ function T:processInput()
     else
       self.midPan = nil
     end
-  elseif free and ui.mousePressed(3) and self:isOverTable(mx, my) and not self.libraryOpen then
+  elseif free and ui.mousePressed(3) and self:isOverTable(mx, my) and not self.libraryOpen and not self.tokenPickerOpen then
     local cx, cy = V.clampedCamera(self)
     self.midPan = { x = mx, y = my, camX = cx, camY = cy }
   end
@@ -1898,6 +1946,55 @@ function T:drawLibrary()
   theme.c = saved
 end
 
+local TOKEN_TILE = 96
+function T:drawTokenPicker()
+  local sw, sh = ui.screenSize()
+  local pw, ph = math.min(900, sw - 40), math.min(600, sh - overlays.contentTop - 40)
+  -- The plain color token is always first and always present, even with no
+  -- custom images in the game's "tokens" folder.
+  local entries = { { kind = "token", name = "Color Token" } }
+  for _, e in ipairs(self.tokenImages) do entries[#entries + 1] = e end
+  local x, y, w, h = panel.draw("tokenPicker", pw, ph, "Tokens", function() self.tokenPickerOpen = false end,
+    #entries .. " token" .. (#entries == 1 and "" or "s"))
+  local gap = 12
+  local cols = math.max(1, math.floor((w - 24 + gap) / (TOKEN_TILE + gap)))
+  local tileW = (w - 24 - (cols - 1) * gap) / cols
+  local nameH = theme.font(11):getHeight() + 4
+  local tileH = TOKEN_TILE + nameH
+  local off = ui.beginScroll("tokenPicker:grid", x, y, w, h)
+  for i, entry in ipairs(entries) do
+    local col, row = (i - 1) % cols, math.floor((i - 1) / cols)
+    local tx, ty = x + 12 + col * (tileW + gap), y + 12 + row * (tileH + gap) - off
+    if ty + tileH > y and ty < y + h then
+      local cx, cy = tx + tileW / 2, ty + TOKEN_TILE / 2
+      local isColor = entry.kind == "token"
+      local id = isColor and "tokenPicker:color" or ("tokenPicker:" .. entry.file)
+      local r = ui.region(id, tx, ty, tileW, TOKEN_TILE, { cursor = "hand" })
+      if isColor then
+        V.tokenFace(self, COLOR_TOKEN_WIDGET, cx, cy, TOKEN_TILE, 1)
+      else
+        local img = imageCache.get(entry.path)
+        if img then
+          local iw, ih = img:getDimensions()
+          local s = math.min(tileW / iw, TOKEN_TILE / ih)
+          love.graphics.setColor(1, 1, 1, 1)
+          love.graphics.draw(img, cx - iw * s / 2, cy - ih * s / 2, 0, s, s)
+        end
+      end
+      ui.text(entry.name, tx, ty + TOKEN_TILE + 2, { w = tileW, align = "center", size = 11, maxLines = 1, color = WHITE })
+      if r.pressed then
+        local mx, my = ui.mouse()
+        if isColor then
+          self:pressSource({ kind = "newToken", cx = cx, cy = cy, scale = 1 }, mx, my)
+        else
+          self:pressSource({ kind = "imageToken", imageFile = entry.file, cx = cx, cy = cy, scale = 1 }, mx, my)
+        end
+      end
+    end
+  end
+  ui.endScroll("tokenPicker:grid", 24 + math.ceil(#entries / cols) * (tileH + gap) - gap)
+end
+
 -- Space preview: big copy of exactly what's visible, centered in the half
 -- of the screen away from the mouse.
 function T:drawPreview()
@@ -1939,6 +2036,7 @@ function T:draw(x, y, w, h)
   -- Overlays, in Flutter's stacking order.
   if self:mySearchOpen() then ui.overlay(function() self:drawSearch() end) end
   if self.libraryOpen then ui.overlay(function() self:drawLibrary() end) end
+  if self.tokenPickerOpen then ui.overlay(function() self:drawTokenPicker() end) end
   if self.logAnim > 0.001 then ui.overlay(function() self:drawLog() end) end
   if self.rulebookOpen then ui.overlay(function() self.rulebook:draw(function() self:toggleRulebook() end) end) end
   if self.gameMenuOpen then ui.overlay(function() self:drawGameMenu() end) end

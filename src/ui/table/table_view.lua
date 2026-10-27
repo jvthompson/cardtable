@@ -12,6 +12,7 @@ local dwz = require("src.core.deck_widget_zones")
 local geometry = require("src.core.geometry")
 local imageCache = require("src.data.image_cache")
 local resolver = require("src.data.image_resolver")
+local fs = require("src.data.fs")
 local CR = require("src.ui.table.card_render")
 local handSettings = require("src.data.hand_settings")
 local selection = require("src.ui.table.selection")
@@ -25,7 +26,9 @@ local BAND_H = CH + EXTRA + 16                           -- hand band height (14
 V.SLOT_W, V.SLOT_H, V.BAND_H = SLOT_W, SLOT_H, BAND_H
 
 V.counterSize = 80
-V.tokenSize = 15
+V.tokenSize = 25
+-- Default footprint for image tokens; tune this independently of V.tokenSize.
+V.imageTokenSize = 25
 
 local DECK_HEADER, DECK_FOOTER, DECK_SPACING, DECK_PAD = 24, 36, 8, 8
 
@@ -39,6 +42,7 @@ end
 function V.widgetSize(T, kind)
   if kind == "simpleCounter" or kind == "packGenerator" then return V.counterSize, V.counterSize end
   if kind == "token" then return V.tokenSize, V.tokenSize end
+  if kind == "imageToken" then return V.imageTokenSize, V.imageTokenSize end
   if kind == "deckBuilder" then return V.deckWidgetSize(#models.GameDefinition.deckBuildingZones(T.game)) end
   return 0, 0
 end
@@ -474,7 +478,24 @@ local function packFace(T, w, x, y, size, alpha)
 end
 V.packFace = packFace
 
-local function tokenFace(w, cx, cy, size, alpha)
+local function tokenFace(T, w, cx, cy, size, alpha)
+  if w.kind == "imageToken" then
+    local path = w.imagePath and T.game.folderPath and fs.join(T.game.folderPath, "tokens", w.imagePath)
+    local img = path and imageCache.get(path)
+    if img then
+      -- Contain-fit with no stencil mask: unlike packFace's cover-fit clip, this
+      -- lets the source image's own alpha show through untouched (e.g. a round
+      -- token with a transparent background) and never crops a non-round image.
+      local iw, ih = img:getDimensions()
+      local s = math.min(size / iw, size / ih)
+      love.graphics.setColor(1, 1, 1, alpha)
+      love.graphics.draw(img, cx - iw * s / 2, cy - ih * s / 2, 0, s, s)
+    else
+      love.graphics.setColor(1, 1, 1, 0.3 * alpha)
+      love.graphics.circle("line", cx, cy, size / 2)
+    end
+    return
+  end
   ui.setColor(rgba(w.backgroundColor, alpha))
   love.graphics.circle("fill", cx, cy, size / 2)
   love.graphics.setColor(0, 0, 0, 0.26 * alpha)
@@ -572,8 +593,8 @@ local function drawTableWidgets(T)
       if w.kind == "simpleCounter" then
         counterFace(w, x, y, ww * s, alpha)
         V.addItem(T, { kind = "counter", widget = w, x = x, y = y, w = ww * s, h = wh * s, interactable = interactable })
-      elseif w.kind == "token" then
-        tokenFace(w, px, py, ww * s, alpha)
+      elseif w.kind == "token" or w.kind == "imageToken" then
+        tokenFace(T, w, px, py, ww * s, alpha)
         if T:isTokenSelected(w.instanceId) then
           local c = T:selectionColor()
           love.graphics.setColor(c[1], c[2], c[3], alpha)
