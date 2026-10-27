@@ -410,9 +410,10 @@ local function appendWidget(state, w)
   return bumped(state, { widgets = widgets })
 end
 
-function A.createWidget(state, instanceId, kind, x, y, ownerId)
+function A.createWidget(state, instanceId, kind, x, y, ownerId, imagePath)
   return appendWidget(state, models.BoardWidgetInstance.new({
     instanceId = instanceId, kind = kind, x = x, y = y, zIndex = nextWidgetZIndex(state), ownerId = ownerId,
+    imagePath = imagePath,
   }))
 end
 
@@ -505,6 +506,7 @@ function A.duplicateWidget(state, sourceInstanceId, newInstanceId, x, y)
   return appendWidget(state, models.BoardWidgetInstance.new({
     instanceId = newInstanceId, kind = source.kind, x = x, y = y, zIndex = nextWidgetZIndex(state),
     value = source.value, backgroundColor = source.backgroundColor, textColor = source.textColor,
+    imagePath = source.imagePath,
   }))
 end
 

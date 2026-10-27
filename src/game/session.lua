@@ -477,8 +477,8 @@ end
 -- Widgets
 ---------------------------------------------------------------------------
 
-function Session:createWidget(instanceId, kind, x, y, actingPlayerId)
-  self.state = A.createWidget(self.state, instanceId, kind, x, y, kind == "deckBuilder" and actingPlayerId or nil)
+function Session:createWidget(instanceId, kind, x, y, actingPlayerId, imagePath)
+  self.state = A.createWidget(self.state, instanceId, kind, x, y, kind == "deckBuilder" and actingPlayerId or nil, imagePath)
   self:notify()
 end
 

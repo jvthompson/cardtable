@@ -64,7 +64,7 @@ end
 
 M.CardOrientation = { portrait = true, left = true, right = true }
 M.CardZone = { table = true, hand = true, zone = true }
-M.BoardWidgetKind = { simpleCounter = true, token = true, arrow = true, packGenerator = true, deckBuilder = true }
+M.BoardWidgetKind = { simpleCounter = true, token = true, imageToken = true, arrow = true, packGenerator = true, deckBuilder = true }
 M.SharedZoneSide = { left = true, right = true }
 M.ZoneKind = { card = true, widget = true }
 M.ZoneWidgetKind = { counter = true }
@@ -658,6 +658,7 @@ function BoardWidgetInstance.new(f)
     creatorId = f.creatorId,
     ownerId = f.ownerId,
     zoneId = f.zoneId,
+    imagePath = f.imagePath,
   }
 end
 
@@ -679,6 +680,7 @@ function BoardWidgetInstance.fromJson(t)
     creatorId = t.creatorId,
     ownerId = t.ownerId,
     zoneId = t.zoneId,
+    imagePath = t.imagePath,
   })
 end
 
@@ -699,7 +701,8 @@ function BoardWidgetInstance.toJson(w)
     "y2", w.y2,
     "creatorId", w.creatorId,
     "ownerId", w.ownerId,
-    "zoneId", w.zoneId
+    "zoneId", w.zoneId,
+    "imagePath", w.imagePath
   )
 end
 

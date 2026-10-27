@@ -187,7 +187,7 @@ function E:handleMessage(clientId, msg)
     elseif t == "requestStopSearch" then
       s:stopSearch(clientId)
     elseif t == "requestCreateWidget" then
-      if models.BoardWidgetKind[p.kind] then s:createWidget(p.instanceId, p.kind, num(p.x), num(p.y), clientId) end
+      if models.BoardWidgetKind[p.kind] then s:createWidget(p.instanceId, p.kind, num(p.x), num(p.y), clientId, p.imagePath) end
     elseif t == "requestCreateArrow" then
       s:createArrow(p.instanceId, num(p.x), num(p.y), num(p.x2), num(p.y2), clientId)
     elseif t == "requestMoveWidget" then

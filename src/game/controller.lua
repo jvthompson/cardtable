@@ -103,7 +103,7 @@ function Host:startSearchPile(rootId)
 end
 
 function Host:stopSearch() self.session:stopSearch(self:acting()) end
-function Host:createWidget(id, kind, x, y) self.session:createWidget(id, kind, x, y, self:acting()) end
+function Host:createWidget(id, kind, x, y, imagePath) self.session:createWidget(id, kind, x, y, self:acting(), imagePath) end
 function Host:createArrow(id, x, y, x2, y2) self.session:createArrow(id, x, y, x2, y2, self:acting()) end
 function Host:moveWidget(id, x, y) self.session:moveWidget(id, x, y) end
 function Host:setWidgetValue(id, value) self.session:setWidgetValue(id, value, self:acting()) end
@@ -184,7 +184,9 @@ end
 function Client:startSearchZone(zoneId) self.send("requestStartSearchZone", p("zoneId", zoneId)) end
 function Client:startSearchPile(rootId) self.send("requestStartSearchPile", p("pileRootInstanceId", rootId)) end
 function Client:stopSearch() self.send("requestStopSearch", p()) end
-function Client:createWidget(id, kind, x, y) self.send("requestCreateWidget", p("instanceId", id, "kind", kind, "x", x, "y", y)) end
+function Client:createWidget(id, kind, x, y, imagePath)
+  self.send("requestCreateWidget", p("instanceId", id, "kind", kind, "x", x, "y", y, "imagePath", imagePath))
+end
 
 function Client:createArrow(id, x, y, x2, y2)
   self.send("requestCreateArrow", p("instanceId", id, "x", x, "y", y, "x2", x2, "y2", y2))
