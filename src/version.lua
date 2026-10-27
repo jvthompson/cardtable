@@ -4,7 +4,7 @@
 -- would always look newer).
 return {
   name = "0.2.0",
-  build = 24,
+  build = 25,
   -- src/platform/updater.lua: where releases are published, the zip asset
   -- each release must carry, and the executable inside it.
   releaseRepo = "jvthompson/cardtable",
