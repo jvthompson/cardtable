@@ -267,7 +267,7 @@ function V.def(T, card) return card and T.session.definitionsById[card.definitio
 function V.cardTurns(T, card, faceAway)
   local def = V.def(T, card)
   local showingBack = not (card.faceUp and def ~= nil)
-  local orientation = CR.shownOrientation(def, showingBack, T.game.cardBacks)
+  local orientation = CR.shownOrientation(def, showingBack, T.game.cardBacks, T.game.scenarioCardBackId)
   return (faceAway and 0.5 or 0) + CR.orientationTurns(orientation) + (card.rotationTurns or 0) / 4
 end
 
@@ -401,7 +401,7 @@ local function drawPileBox(T, opts)
       cardScale = s * math.min(1, boxW / (CH * s), boxH / (CW * s))
     end
     CR.draw({ def = opts.def, faceUp = opts.faceUp, cx = cx, cy = cy, scale = cardScale, angle = angle,
-      border = opts.border, alpha = opts.alpha, tint = opts.tint, cardBacks = T.game.cardBacks })
+      border = opts.border, alpha = opts.alpha, tint = opts.tint, cardBacks = T.game.cardBacks, scenarioCardBackId = T.game.scenarioCardBackId })
     CR.drawCountBadge(bx + boxW - 12 * s, by + 12 * s, opts.count, s)
     if opts.shuffle then
       local scx, scy = cx, by + boxH + 8 * s - 14 * s
@@ -456,7 +456,7 @@ local function drawTablePiles(T)
       })
     elseif not (T.flight and T.flight.instanceId == top.instanceId) then
       CR.draw({ def = def, faceUp = top.faceUp, cx = px, cy = py, scale = T.zoom, angle = angle, border = border,
-        alpha = alpha, tint = tint, cardBacks = T.game.cardBacks })
+        alpha = alpha, tint = tint, cardBacks = T.game.cardBacks, scenarioCardBackId = T.game.scenarioCardBackId })
       V.addItem(T, {
         kind = "tableCard", card = top, rootId = rootId, hoverId = top.instanceId,
         cx = px, cy = py, hw = CW * T.zoom / 2, hh = CH * T.zoom / 2, angle = angle,
@@ -759,7 +759,7 @@ local function drawRemoteGhosts(T)
           if c then
             local cx, cy = V.toScreen(T, c.x, c.y)
             CR.draw({ def = V.def(T, c), faceUp = c.faceUp, cx = tx + (cx - ox), cy = ty + (cy - oy),
-              angle = T:cardFacesAwayFromMe(c.ownerId) and math.pi or 0, cardBacks = T.game.cardBacks })
+              angle = T:cardFacesAwayFromMe(c.ownerId) and math.pi or 0, cardBacks = T.game.cardBacks, scenarioCardBackId = T.game.scenarioCardBackId })
           end
         end
       end
@@ -792,7 +792,7 @@ local function drawFlight(T)
   end
   local e = t < 0.5 and 2 * t * t or 1 - (-2 * t + 2) ^ 2 / 2 -- easeInOut
   CR.draw({ def = f.def, faceUp = f.faceUp, cx = f.fromX + (f.toX - f.fromX) * e, cy = f.fromY + (f.toY - f.fromY) * e,
-    cardBacks = T.game.cardBacks })
+    cardBacks = T.game.cardBacks, scenarioCardBackId = T.game.scenarioCardBackId })
 end
 
 function V.drawTable(T)
@@ -914,7 +914,7 @@ local function drawHandBand(T, player, isLocal, x, y, w, rotate, fanDown)
       -- Rise along the card's own up axis.
       local lx, ly = sign * lift * math.sin(angle), -sign * lift * math.cos(angle)
       CR.draw({ def = V.def(T, c), faceUp = c.faceUp, cx = cx + lx, cy = cy + ly, angle = angle, scale = P.scale,
-        border = border, alpha = V.ghostAlpha(T, id), cardBacks = T.game.cardBacks })
+        border = border, alpha = V.ghostAlpha(T, id), cardBacks = T.game.cardBacks, scenarioCardBackId = T.game.scenarioCardBackId })
       -- Hit box covers the resting and lifted positions so the hover
       -- does not flicker at the card's lower edge while it rises.
       local hx, hy = cx + lx / 2, cy + ly / 2
@@ -940,7 +940,7 @@ local function drawHandBand(T, player, isLocal, x, y, w, rotate, fanDown)
         -- cards to its right stay on top and remain selectable.
         drawHandCard(c, cx, cy, angle, lift)
       else
-        CR.draw({ def = nil, faceUp = false, cx = cx, cy = cy, angle = angle, scale = P.scale, border = border, cardBacks = T.game.cardBacks })
+        CR.draw({ def = nil, faceUp = false, cx = cx, cy = cy, angle = angle, scale = P.scale, border = border, cardBacks = T.game.cardBacks, scenarioCardBackId = T.game.scenarioCardBackId })
       end
     end
     ui.popClip()

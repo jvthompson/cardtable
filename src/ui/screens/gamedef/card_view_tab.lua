@@ -140,6 +140,7 @@ end
 ---------------------------------------------------------------------------
 
 function T:drawPool(x, y, w, h, visible)
+  local game = self.editor.game
   local folder = self.editor.folderPath
   local cardBacks = self.displayBacks
   local gy = y + 4
@@ -148,7 +149,7 @@ function T:drawPool(x, y, w, h, visible)
   poolGrid.draw("cv:pool", visible, x, gy, w, gh, 12, function(card, i, tx, ty, tileW, cx)
     local r = ui.region("cv:card:" .. keyOf(card), cx - PW / 2 - 4, ty - 4, PW + 8, PH + 8 + 2 + nameH, { cursor = "hand" })
     CR.draw({ def = common.displayCard(folder, card), faceUp = true, cx = cx, cy = ty + PH / 2, scale = POOL_SCALE,
-      angle = CR.orientationTurns(card.orientation) * 2 * math.pi, cardBacks = cardBacks })
+      angle = CR.orientationTurns(card.orientation) * 2 * math.pi, cardBacks = cardBacks, scenarioCardBackId = game.scenarioCardBackId })
     if card == self.selected then
       -- Match the card's footprint: turned cards are landscape around the same center.
       local turned = CR.orientationTurns(card.orientation) ~= 0
@@ -174,12 +175,12 @@ local function turnsOf(orientation)
 end
 
 -- A card drawn as large as fits the box, turned to its orientation.
-local function fitCard(def, faceUp, orientation, cardBacks, x, y, w, h)
+local function fitCard(def, faceUp, orientation, cardBacks, scenarioCardBackId, x, y, w, h)
   local turned = orientation ~= "portrait"
   local bw, bh = turned and CH or CW, turned and CW or CH
   local s = math.min(w / bw, h / bh)
   CR.draw({ def = def, faceUp = faceUp, cx = x + w / 2, cy = y + h / 2, scale = s,
-    angle = CR.orientationTurns(orientation) * 2 * math.pi, cardBacks = cardBacks })
+    angle = CR.orientationTurns(orientation) * 2 * math.pi, cardBacks = cardBacks, scenarioCardBackId = scenarioCardBackId })
 end
 
 -- The front: the actual image uncropped at its own aspect ratio (unlike
@@ -189,14 +190,15 @@ function T:drawFrontPane(card, x, y, w, h)
   local display = common.displayCard(self.editor.folderPath, card)
   local px, py, pw, ph = x + 20, y + 20, w - 40, h - 40
   local drawn = common.drawImageInBox(display.imagePath, px, py, pw, ph, "contain", turnsOf(card.orientation), true)
-  if drawn == false then fitCard(display, true, card.orientation, self.displayBacks, px, py, pw, ph) end
+  if drawn == false then fitCard(display, true, card.orientation, self.displayBacks, nil, px, py, pw, ph) end
 end
 
 function T:drawBackPane(card, x, y, w, h)
   ui.rect("fill", x, y, w, h, 0, { 0, 0, 0, 0.05 })
+  local scenarioCardBackId = self.editor.game.scenarioCardBackId
   local display = common.displayCard(self.editor.folderPath, card)
-  local _, _, orientation = resolver.resolveCardBackImagePath(self.displayBacks, display)
-  fitCard(display, false, orientation or "portrait", self.displayBacks, x + 20, y + 20, w - 40, h - 40)
+  local _, _, orientation = resolver.resolveCardBackImagePath(self.displayBacks, display, scenarioCardBackId)
+  fitCard(display, false, orientation or "portrait", self.displayBacks, scenarioCardBackId, x + 20, y + 20, w - 40, h - 40)
 end
 
 function T:drawPreview(x, y, w, h, visible)
@@ -204,9 +206,11 @@ function T:drawPreview(x, y, w, h, visible)
   local card = self.selected
   local controlsH = 8 + 40 + 28 + 8
   local ph = h - controlsH
+  local showsBack = card and (card.cardBackId ~= nil
+    or (card.isScenarioCard and self.editor.game.scenarioCardBackId ~= nil))
   if not card then
     ui.text("Select a card to preview", x, y, { w = w, h = ph, align = "center", valign = "middle", color = c.onSurfaceVariant })
-  elseif card.cardBackId == nil then
+  elseif not showsBack then
     self:drawFrontPane(card, x, y, w, ph)
   else
     local pw = (w - 12) / 2

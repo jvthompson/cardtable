@@ -521,6 +521,7 @@ function GameDefinition.new(f)
     playmatBorderColor = f.playmatBorderColor,
     hasScenarios = f.hasScenarios or false,
     scenarios = f.scenarios or {},
+    scenarioCardBackId = f.scenarioCardBackId,
     sameOrientationForAll = f.sameOrientationForAll or false,
     folderPath = f.folderPath, -- local only, never serialized
   }
@@ -613,6 +614,7 @@ function GameDefinition.fromJson(t)
     playmatBorderColor = t.playmatBorderColor,
     hasScenarios = t.hasScenarios == true,
     scenarios = mapJson(t.scenarios, Scenario.fromJson),
+    scenarioCardBackId = t.scenarioCardBackId,
     sameOrientationForAll = t.sameOrientationForAll == true,
   })
 end
@@ -643,6 +645,7 @@ function GameDefinition.toJson(g)
   if g.playmatBorderColor then o.playmatBorderColor = g.playmatBorderColor end
   if g.hasScenarios then o.hasScenarios = true end
   o.scenarios = nonEmptyList(g.scenarios, Scenario.toJson)
+  if g.scenarioCardBackId then o.scenarioCardBackId = g.scenarioCardBackId end
   if g.sameOrientationForAll then o.sameOrientationForAll = true end
   return o
 end

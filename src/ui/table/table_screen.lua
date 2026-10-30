@@ -1139,7 +1139,7 @@ function T:drawDragFeedback()
       local px, py = V.toScreen(self, primary.x, primary.y)
       for _, c in ipairs(d.group) do
         local x, y = V.toScreen(self, c.x, c.y)
-        CR.draw({ def = V.def(self, c), faceUp = c.faceUp, cx = cx + x - px, cy = cy + y - py, scale = s, cardBacks = self.game.cardBacks })
+        CR.draw({ def = V.def(self, c), faceUp = c.faceUp, cx = cx + x - px, cy = cy + y - py, scale = s, cardBacks = self.game.cardBacks, scenarioCardBackId = self.game.scenarioCardBackId })
       end
       -- Attached widgets ride along.
       for _, w in ipairs(self.state.widgets) do
@@ -1151,7 +1151,7 @@ function T:drawDragFeedback()
     else
       local c = d.group[1]
       CR.draw({ def = V.def(self, c), faceUp = c.faceUp or d.src.forceFaceUp, cx = cx, cy = cy, scale = s, angle = d.angle,
-        border = d.src.border, cardBacks = self.game.cardBacks })
+        border = d.src.border, cardBacks = self.game.cardBacks, scenarioCardBackId = self.game.scenarioCardBackId })
     end
   elseif d.kind == "selection" then
     -- Everything keeps its offset from the anchor, at table size.
@@ -1163,7 +1163,7 @@ function T:drawDragFeedback()
       local x, y = V.toScreen(self, c.x, c.y)
       local angle = V.cardTurns(self, c, self:cardFacesAwayFromMe(c.ownerId)) * 2 * math.pi
       CR.draw({ def = V.def(self, c), faceUp = c.faceUp, cx = cx + x - ax, cy = cy + y - ay, scale = z, angle = angle,
-        tint = tint, cardBacks = self.game.cardBacks })
+        tint = tint, cardBacks = self.game.cardBacks, scenarioCardBackId = self.game.scenarioCardBackId })
     end
     for _, w in ipairs(self.state.widgets) do
       if d.tokenIds[w.instanceId] or (w.attachedCardId and d.groupIds[w.attachedCardId]) then
@@ -1174,7 +1174,7 @@ function T:drawDragFeedback()
   elseif d.kind == "widget" or d.kind == "token" then
     self:drawWidgetFace(d.src.widget, cx, cy, s)
   elseif d.kind == "library" then
-    CR.draw({ def = d.src.def, faceUp = true, cx = cx, cy = cy, cardBacks = self.game.cardBacks })
+    CR.draw({ def = d.src.def, faceUp = true, cx = cx, cy = cy, cardBacks = self.game.cardBacks, scenarioCardBackId = self.game.scenarioCardBackId })
   elseif d.kind == "imageToken" then
     self:drawWidgetFace({ kind = "imageToken", imagePath = d.src.imageFile }, cx, cy, s)
   elseif d.kind == "newToken" then
@@ -2021,6 +2021,7 @@ function T:drawSearch()
     local cx, cy = tx + tw / 2, ty + GH / 2
     local r = ui.region("search:" .. c.instanceId, cx - GW / 2, ty, GW, GH, { cursor = "hand" })
     CR.draw({ def = def, faceUp = def ~= nil, cx = cx, cy = cy, scale = GRID_SCALE, cardBacks = self.game.cardBacks,
+      scenarioCardBackId = self.game.scenarioCardBackId,
       angle = def and CR.orientationTurns(def.orientation) * 2 * math.pi or 0,
       alpha = V.isDragging(self, c.instanceId) and 0.3 or 1 })
     gridName(def and def.cardTitle or "", tx, ty, tw)
@@ -2061,6 +2062,7 @@ function T:drawLibrary()
       local cx, cy = tx + tw / 2, ty + GH / 2
       local r = ui.region("lib:" .. def.id, cx - GW / 2, ty, GW, GH, { cursor = "hand" })
       CR.draw({ def = def, faceUp = true, cx = cx, cy = cy, scale = GRID_SCALE, cardBacks = self.game.cardBacks,
+        scenarioCardBackId = self.game.scenarioCardBackId,
         angle = CR.orientationTurns(def.orientation) * 2 * math.pi })
       gridName(def.cardTitle, tx, ty, tw)
       if r.hovered then self.libraryHoverDef = def end
@@ -2132,7 +2134,7 @@ function T:drawPreview()
     def = V.def(self, c)
     faceUp = (c.faceUp or self.hoveredForceFaceUp) and def ~= nil
     if c.zone == "table" then
-      orientation = CR.shownOrientation(def, not faceUp, self.game.cardBacks)
+      orientation = CR.shownOrientation(def, not faceUp, self.game.cardBacks, self.game.scenarioCardBackId)
     elseif c.zone == "zone" then
       -- Zones can be displayed turned (ZoneDefinition.orientation); the
       -- pile box is drawn at that angle regardless of face-up state, so
@@ -2150,7 +2152,8 @@ function T:drawPreview()
     return
   end
   local sw, sh = ui.screenSize()
-  CR.drawPreview({ { def = def, faceUp = faceUp, orientation = orientation } }, self.game.cardBacks, sw, sh, (ui.mouse()))
+  CR.drawPreview({ { def = def, faceUp = faceUp, orientation = orientation } }, self.game.cardBacks, sw, sh, (ui.mouse()),
+    self.game.scenarioCardBackId)
 end
 
 ---------------------------------------------------------------------------

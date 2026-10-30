@@ -220,18 +220,18 @@ function R.drawFaceBase(def, alpha)
   end
 end
 
-function R.drawBackBase(cardBacks, def, alpha)
+function R.drawBackBase(cardBacks, def, alpha, scenarioCardBackId)
   alpha = alpha or 1
-  local path, missing = resolver.resolveCardBackImagePath(cardBacks or {}, def)
+  local path, missing = resolver.resolveCardBackImagePath(cardBacks or {}, def, scenarioCardBackId)
   if missing then return missingBack(alpha) end
   if not path then return codeDrawnBack(alpha) end
   imageFace(path, alpha, codeDrawnBack)
 end
 
 -- Which way the shown side of a card is oriented (card or its back).
-function R.shownOrientation(def, showingBack, cardBacks)
+function R.shownOrientation(def, showingBack, cardBacks, scenarioCardBackId)
   if showingBack then
-    local _, _, o = resolver.resolveCardBackImagePath(cardBacks or {}, def)
+    local _, _, o = resolver.resolveCardBackImagePath(cardBacks or {}, def, scenarioCardBackId)
     return o
   end
   return def and def.orientation or "portrait"
@@ -240,7 +240,8 @@ end
 -- Full card draw.
 -- opts: def (CardDefinition or nil), faceUp, cx, cy (screen center), scale,
 --       angle (radians), border (rgba color table or nil), alpha, cardBacks,
---       forceFaceUp, tint (rgba laid over the card, e.g. the selection color)
+--       scenarioCardBackId, forceFaceUp, tint (rgba laid over the card, e.g.
+--       the selection color)
 function R.draw(opts)
   local scale = opts.scale or 1
   local alpha = opts.alpha or 1
@@ -252,7 +253,7 @@ function R.draw(opts)
   love.graphics.scale(scale, scale)
   textScale = math.max(0.5, math.floor(scale * 4 + 0.5) / 4)
   love.graphics.translate(-W / 2, -H / 2)
-  if showFace then R.drawFaceBase(def, alpha) else R.drawBackBase(opts.cardBacks, def, alpha) end
+  if showFace then R.drawFaceBase(def, alpha) else R.drawBackBase(opts.cardBacks, def, alpha, opts.scenarioCardBackId) end
   if opts.tint then
     love.graphics.setColor(opts.tint[1], opts.tint[2], opts.tint[3], (opts.tint[4] or 1) * alpha)
     love.graphics.rectangle("fill", 0, 0, W, H, RAD, RAD)
@@ -300,11 +301,11 @@ function R.drawSearchBadge(cx, cy, scale)
 end
 
 -- Preview faces for a card definition as browsed in a list: its front, then
--- its back when it has its own.
-function R.definitionFaces(def, cardBacks)
+-- its back when it has its own (explicit, or a scenario card's configured default).
+function R.definitionFaces(def, cardBacks, scenarioCardBackId)
   local faces = { { def = def, faceUp = true, orientation = def.orientation } }
-  if def.cardBackId ~= nil then
-    local _, _, backOrientation = resolver.resolveCardBackImagePath(cardBacks, def)
+  if def.cardBackId ~= nil or (def.isScenarioCard and scenarioCardBackId ~= nil) then
+    local _, _, backOrientation = resolver.resolveCardBackImagePath(cardBacks, def, scenarioCardBackId)
     faces[2] = { def = def, faceUp = false, orientation = backOrientation or "portrait" }
   end
   return faces
@@ -315,7 +316,7 @@ end
 -- centered in the half of the (sw x sh) screen away from mouse x mx. One
 -- face is 70% of the screen tall, a stack 90%; at most 42% wide either way.
 local PREVIEW_GAP = 16
-function R.drawPreview(faces, cardBacks, sw, sh, mx)
+function R.drawPreview(faces, cardBacks, sw, sh, mx, scenarioCardBackId)
   local boxes, stackH, maxW = {}, 0, 0
   for i, f in ipairs(faces) do
     local rotated = f.orientation ~= "portrait"
@@ -333,7 +334,7 @@ function R.drawPreview(faces, cardBacks, sw, sh, mx)
   for i, f in ipairs(faces) do
     local bh = boxes[i].bh * s
     R.draw({ def = f.def, faceUp = f.faceUp, cx = left + pw / 2, cy = y + bh / 2, scale = s,
-      angle = R.orientationTurns(f.orientation) * 2 * math.pi, cardBacks = cardBacks })
+      angle = R.orientationTurns(f.orientation) * 2 * math.pi, cardBacks = cardBacks, scenarioCardBackId = scenarioCardBackId })
     y = y + bh + PREVIEW_GAP
   end
 end

@@ -80,6 +80,12 @@ return function(t)
       t.eq(#g.scenarios, 1)
       t.eq(g.scenarios[1].zones[1].id, "z1")
     end)
+    t.it("resolveGameImagePaths keeps scenarioCardBackId (play-ready game copies don't lose it)", function()
+      local dir = tempDir()
+      write(fs.join(dir, "gamedef.json"), '{"id":"g","name":"G","cards":[],"scenarioCardBackId":"scen"}')
+      local g = loader.loadFromFolder(dir)[1]
+      t.eq(g.scenarioCardBackId, "scen")
+    end)
     t.it("appends standard cards when a zone asks for them; library scans subfolders", function()
       local root = tempDir()
       write(fs.join(root, "g1", "gamedef.json"), { id = "g1", name = "G1", cards = {},
@@ -101,7 +107,7 @@ return function(t)
       t.isNil(resolver.resolvedImagePathForDisplay("C:\\g", nil))
     end)
     t.it("mergeLocalImagePaths", function()
-      local remote = models.GameDefinition.new({ id = "g", name = "G",
+      local remote = models.GameDefinition.new({ id = "g", name = "G", scenarioCardBackId = "d",
         cards = { H.cardDef("c1", {}, { imagePath = "C:/host/c1.jpg" }), H.cardDef("c2", {}, { imagePath = "C:/host/c2.jpg" }) },
         cardBacks = { models.CardBackDefinition.new({ id = "d", name = "D", imagePath = "C:/host/b.jpg" }) } })
       local localGame = models.GameDefinition.new({ id = "g", name = "G", folderPath = "C:/client",
@@ -112,6 +118,7 @@ return function(t)
       t.isNil(m.cards[2].imagePath)
       t.eq(m.cardBacks[1].imagePath, "C:/client/b.jpg")
       t.eq(m.folderPath, "C:/client")
+      t.eq(m.scenarioCardBackId, "d")
     end)
     t.it("card backs: default, alternate, fallback, empty", function()
       local backs = { models.CardBackDefinition.new({ id = "d", name = "D", imagePath = "d.png" }),
@@ -125,12 +132,28 @@ return function(t)
       p, missing, o = resolver.resolveCardBackImagePath({}, H.cardDef("c"))
       t.eq({ p, missing, o }, { nil, false, "portrait" })
     end)
+    t.it("card backs: a scenario card falls back to the scenario default, which an explicit choice overrides", function()
+      local backs = { models.CardBackDefinition.new({ id = "d", name = "D", imagePath = "d.png" }),
+        models.CardBackDefinition.new({ id = "scen", name = "Scen", imagePath = "scen.png", orientation = "left" }) }
+      local scenarioCard = H.cardDef("c", {}, { isScenarioCard = true })
+      local p, missing, o = resolver.resolveCardBackImagePath(backs, scenarioCard, "scen")
+      t.eq({ p, missing, o }, { "scen.png", false, "left" })
+      -- Not a scenario card: unaffected by the scenario default.
+      t.eq(resolver.resolveCardBackImagePath(backs, H.cardDef("c"), "scen"), "d.png")
+      -- An explicit per-card back still overrides the scenario default.
+      local overridden = H.cardDef("c", {}, { isScenarioCard = true, cardBackId = "d" })
+      t.eq(resolver.resolveCardBackImagePath(backs, overridden, "scen"), "d.png")
+      -- Unknown scenario default id falls back to the game default.
+      t.eq(resolver.resolveCardBackImagePath(backs, scenarioCard, "gone"), "d.png")
+    end)
     t.it("unique backs", function()
       local dir = tempDir()
       write(fs.join(dir, "a_BACK.png"), "x")
       resolver.clearCache()
-      local card = H.cardDef("a", {}, { imagePath = fs.join(dir, "a.png"), cardBackId = "__unique__", uniqueBackOrientation = "right" })
-      local p, missing, o = resolver.resolveCardBackImagePath({}, card)
+      local card = H.cardDef("a", {}, { imagePath = fs.join(dir, "a.png"), cardBackId = "__unique__", uniqueBackOrientation = "right",
+        isScenarioCard = true })
+      -- A unique back overrides the scenario default too.
+      local p, missing, o = resolver.resolveCardBackImagePath({}, card, "scen")
       t.eq({ p, missing, o }, { fs.join(dir, "a_BACK.png"), false, "right" })
       local noFile = H.cardDef("b", {}, { imagePath = fs.join(dir, "b.png"), cardBackId = "__unique__" })
       t.eq({ resolver.resolveCardBackImagePath({}, noFile) }, { nil, true, "portrait" })

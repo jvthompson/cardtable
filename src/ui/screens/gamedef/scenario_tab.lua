@@ -57,18 +57,47 @@ local SCENARIO_MODE_OPTIONS = { { value = false, label = "Player Cards" }, { val
 -- Top-level scenario list / detail
 ---------------------------------------------------------------------------
 
+-- Deep copy with a fresh scenario id and fresh zone ids (so both the
+-- original and the copy can be loaded into the same session without their
+-- shared zones colliding); placements and decks need no id changes.
+function T:duplicateScenario(scenario)
+  local game = self.editor.game
+  local copy = util.deepCopy(scenario)
+  copy.id = uuid.v4()
+  copy.name = scenario.name .. " Copy"
+  for _, z in ipairs(copy.zones) do z.id = uuid.v4() end
+  game.scenarios[#game.scenarios + 1] = copy
+  self.selected = copy
+end
+
+function T:openDuplicateScenarioMenu(x, y)
+  local game = self.editor.game
+  local items = {}
+  for _, s in ipairs(game.scenarios) do
+    items[#items + 1] = { label = s.name == "" and "(unnamed scenario)" or s.name,
+      onSelect = function() self:duplicateScenario(s) end }
+  end
+  overlays.menu(x, y, items)
+end
+
 function T.drawScenarioList(self, x, y, w, h)
   local c = theme.c
   local game = self.editor.game
   ui.rect("fill", x, y, w, h, 0, c.surfaceContainer)
-  local hh, add = common.sectionHeader("scen:list", "Scenarios", x + 16, y + 12, w - 32, {
-    count = #game.scenarios, action = { label = "Add Scenario", icon = "add", id = "scen:add" } })
-  if add then
+  local hh = common.sectionHeader("scen:list", "Scenarios", x + 16, y + 12, w - 32, { count = #game.scenarios })
+  local bx, bw = x + 16, w - 32
+  local by = y + 12 + hh + 4
+  if ui.button("Add Scenario", bx, by, bw, 40, { variant = "tonal", icon = "add", id = "scen:add" }) then
     local scenario = models.Scenario.new({ id = uuid.v4(), name = "New Scenario" })
     game.scenarios[#game.scenarios + 1] = scenario
     self.selected = scenario
   end
-  local ly = y + 12 + hh + 8
+  by = by + 40 + 8
+  if ui.button("Duplicate Scenario...", bx, by, bw, 40,
+    { variant = "outlined", icon = "copy_all", id = "scen:dup", disabled = #game.scenarios == 0 }) then
+    self:openDuplicateScenarioMenu(bx, by + 40 + 4)
+  end
+  local ly = by + 40 + 12
   local lh = y + h - ly
   local off = ui.beginScroll("scen:list:scroll", x, ly, w, lh)
   local ro = widgets.reorder("scen:scenarios")
@@ -509,7 +538,7 @@ function T:drawDeckPool(scenario, deckType, x, y, w, h)
     local r = ui.region("scendeck:card:" .. def.id, cx - poolGrid.PW / 2, ty, poolGrid.PW, poolGrid.PH + 6 + nameH,
       { cursor = "hand" })
     CR.draw({ def = common.displayCard(folder, def), faceUp = true, cx = cx, cy = ty + poolGrid.PH / 2, scale = poolGrid.SCALE,
-      angle = CR.orientationTurns(def.orientation) * 2 * math.pi, cardBacks = displayBacks })
+      angle = CR.orientationTurns(def.orientation) * 2 * math.pi, cardBacks = displayBacks, scenarioCardBackId = game.scenarioCardBackId })
     local n = 0
     if sd then
       for _, e in ipairs(sd.entries) do
@@ -536,7 +565,8 @@ function T:drawPreview()
   local display = common.displayCard(folder, def)
   local displayBacks = common.displayCardBacks(folder, game.cardBacks)
   local sw, sh = ui.screenSize()
-  CR.drawPreview(CR.definitionFaces(display, displayBacks), displayBacks, sw, sh, (ui.mouse()))
+  CR.drawPreview(CR.definitionFaces(display, displayBacks, game.scenarioCardBackId), displayBacks, sw, sh, (ui.mouse()),
+    game.scenarioCardBackId)
 end
 
 function T:drawDeckList(scenario, deckType, x, y, w, h)
@@ -642,7 +672,7 @@ function T:drawPlacementLibrary(game)
     local r = ui.region("scenplacelib:card:" .. def.id, cx - poolGrid.PW / 2, ty, poolGrid.PW, poolGrid.PH + 6 + nameH,
       { cursor = "hand" })
     CR.draw({ def = common.displayCard(folder, def), faceUp = true, cx = cx, cy = ty + poolGrid.PH / 2, scale = poolGrid.SCALE,
-      angle = CR.orientationTurns(def.orientation) * 2 * math.pi, cardBacks = displayBacks })
+      angle = CR.orientationTurns(def.orientation) * 2 * math.pi, cardBacks = displayBacks, scenarioCardBackId = game.scenarioCardBackId })
     ui.text(def.cardTitle, tx, ty + poolGrid.PH + 6,
       { size = 11, w = tileW, align = "center", maxLines = poolGrid.NAME_LINES, color = theme.fixed.white })
     if r.hovered then self.hoveredId = def.id end
@@ -700,7 +730,8 @@ function T:drawPlacementView(scenario, x, y, w, h)
       end
       CR.draw({ def = common.displayCard(self.editor.folderPath, def), faceUp = p.faceUp, cx = sx, cy = sy, scale = scale,
         angle = CR.orientationTurns(def.orientation) * 2 * math.pi,
-        cardBacks = common.displayCardBacks(self.editor.folderPath, game.cardBacks) })
+        cardBacks = common.displayCardBacks(self.editor.folderPath, game.cardBacks),
+        scenarioCardBackId = game.scenarioCardBackId })
       if p == self.selectedPlacement then
         ui.rect("line", sx - bw / 2 - 2, sy - bh / 2 - 2, bw + 4, bh + 4, 4, theme.fixed.blue)
       end
@@ -713,7 +744,8 @@ function T:drawPlacementView(scenario, x, y, w, h)
     local mx, my = ui.mouse()
     CR.draw({ def = common.displayCard(self.editor.folderPath, def), faceUp = true, cx = mx, cy = my, scale = scale,
       angle = CR.orientationTurns(def.orientation) * 2 * math.pi,
-      cardBacks = common.displayCardBacks(self.editor.folderPath, game.cardBacks), alpha = 0.85 })
+      cardBacks = common.displayCardBacks(self.editor.folderPath, game.cardBacks),
+      scenarioCardBackId = game.scenarioCardBackId, alpha = 0.85 })
     if ui.mouseReleased(1) then
       if mx >= cx and mx <= cx + cw and my >= cy and my <= cy + ch then
         local turned = def.orientation ~= "portrait"

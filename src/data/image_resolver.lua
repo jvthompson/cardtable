@@ -39,8 +39,11 @@ local function uniqueCardBackPathFor(imagePath)
 end
 R.uniqueCardBackPathFor = uniqueCardBackPathFor
 
--- Returns path (or nil), missing (bool), orientation.
-function R.resolveCardBackImagePath(cardBacks, card)
+-- Returns path (or nil), missing (bool), orientation. scenarioCardBackId
+-- (a game's scenarioCardBackId) is the fallback for a scenario card with no
+-- explicit cardBackId of its own; an explicit choice (including "unique")
+-- always overrides it.
+function R.resolveCardBackImagePath(cardBacks, card, scenarioCardBackId)
   local cardBackId = card and card.cardBackId
   if cardBackId == models.uniqueCardBackId then
     local orientation = card.uniqueBackOrientation or "portrait"
@@ -52,6 +55,8 @@ function R.resolveCardBackImagePath(cardBacks, card)
   local selected
   if cardBackId ~= nil then
     selected = util.find(cardBacks, function(b) return b.id == cardBackId end)
+  elseif card and card.isScenarioCard and scenarioCardBackId ~= nil then
+    selected = util.find(cardBacks, function(b) return b.id == scenarioCardBackId end)
   end
   selected = selected or cardBacks[1]
   if selected == nil then return nil, false, "portrait" end
@@ -102,6 +107,7 @@ function R.mergeLocalImagePaths(remote, localGame)
     folderPath = localGame.folderPath,
     hasScenarios = remote.hasScenarios,
     scenarios = remote.scenarios,
+    scenarioCardBackId = remote.scenarioCardBackId,
     sameOrientationForAll = remote.sameOrientationForAll,
   })
 end

@@ -266,6 +266,17 @@ function T:draw(x, y, w, h)
     ui.text("No card backs yet.", cx, yy, { h = 32, valign = "middle", color = c.onSurfaceVariant })
     yy = yy + 32
   end
+  if util.any(game.cards, function(card) return card.isScenarioCard == true end) then
+    yy = yy + common.GAP
+    local backOptions = { { value = nil, label = "(Use Default)" } }
+    for _, b in ipairs(game.cardBacks) do backOptions[#backOptions + 1] = { value = b.id, label = b.name } end
+    game.scenarioCardBackId = ui.dropdown("gs:scenarioback", cx, yy, math.min(360, cw), backOptions,
+      game.scenarioCardBackId, { label = "Scenario Card Back" })
+    yy = yy + common.FIELD_H + 4
+    ui.text('The back shown for cards marked "Scenario Card" on the Cards tab, unless a card picks its own.',
+      cx, yy, { w = cw, size = 12, color = c.onSurfaceVariant })
+    yy = yy + 20
+  end
   yy = yy + common.SECTION_GAP
 
   -- Table colors: optional per-game defaults for the felt and the playmat
