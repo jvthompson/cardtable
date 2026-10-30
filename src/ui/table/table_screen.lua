@@ -161,18 +161,21 @@ function T:cardFacesAwayFromMe(ownerId)
   return seats.isFarMirrorSeat(ownerSeat, n) ~= seats.isFarMirrorSeat(mySeat, n)
 end
 
--- An owned discard zone wins if the player has one; a shared/scenario
--- discard zone is used as a fallback so it's still reachable by the D-key
--- and "Send to..." menus, not drag-and-drop only.
-function T:localDiscardZoneId()
-  local shared
+-- An unowned card always goes to a shared discard pile (never a specific
+-- player's personal one); an owned card prefers that player's own discard
+-- zone, falling back to a shared one if they don't have a personal pile.
+function T:localDiscardZoneId(cardOwnerId)
+  local sharedId
   for _, z in ipairs(self.session:effectiveZones()) do
     if z.isDiscardPile then
-      if not z.shared then return z.id end
-      shared = shared or z.id
+      if z.shared then
+        sharedId = sharedId or z.id
+      elseif cardOwnerId ~= nil then
+        return z.id
+      end
     end
   end
-  return shared
+  return sharedId
 end
 
 -- Nil-safe zone lookup over the session's effective zones (game.zones plus
@@ -514,7 +517,7 @@ end
 function T:discardHovered()
   local c = self:actableHoveredTableCard()
   if not c then return end
-  local zoneId = self:localDiscardZoneId()
+  local zoneId = self:localDiscardZoneId(c.ownerId)
   if not zoneId then return end
   if self:hoveredSelectionRoots() then
     for _, sc in ipairs(self:selectedCards()) do
@@ -1223,7 +1226,7 @@ function T:cardMenuItems(card, onSearch)
     end
     local send = {}
     if card.zone ~= "hand" then send[#send + 1] = { label = "Hand", onSelect = function() C:moveToHand(card.instanceId) end } end
-    local discardId = self:localDiscardZoneId()
+    local discardId = self:localDiscardZoneId(card.ownerId)
     local discard = discardId and self:zoneById(discardId)
     if discard then send[#send + 1] = { label = "Discard", submenu = placementMenu(discard) } end
     for _, zone in ipairs(self.session:effectiveZones()) do
@@ -1286,7 +1289,7 @@ function T:selectionMenuItems(mx, my)
     for _, c in ipairs(cards) do C:moveToHand(c.instanceId) end
     sound.play("draw")
   end } }
-  local discardId = self:localDiscardZoneId()
+  local discardId = self:localDiscardZoneId(cards[1].ownerId)
   local discard = discardId and self:zoneById(discardId)
   if discard then send[#send + 1] = { label = "Discard", submenu = placementMenu(discard) } end
   for _, zone in ipairs(self.session:effectiveZones()) do
