@@ -147,6 +147,12 @@ function T:drawCardZoneFields(zone, k, x, y, w)
       get = function() return zone.isDiscardPile end, set = function(v) zone.isDiscardPile = v end },
   }, x, yy, w)
 
+  -- Display.
+  yy = yy + group("Display", x, yy, w)
+  zone.orientation = ui.dropdown(k .. ":orient", x, yy, (w - common.GAP) / 2, common.orientationOptions, zone.orientation,
+    { label = "Zone Orientation" })
+  yy = yy + common.FIELD_H + 8
+
   -- Dealing (owned zones) or the shared deck (shared zones).
   local h
   if not zone.shared then

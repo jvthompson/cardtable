@@ -161,11 +161,18 @@ function T:cardFacesAwayFromMe(ownerId)
   return seats.isFarMirrorSeat(ownerSeat, n) ~= seats.isFarMirrorSeat(mySeat, n)
 end
 
+-- An owned discard zone wins if the player has one; a shared/scenario
+-- discard zone is used as a fallback so it's still reachable by the D-key
+-- and "Send to..." menus, not drag-and-drop only.
 function T:localDiscardZoneId()
+  local shared
   for _, z in ipairs(self.session:effectiveZones()) do
-    if not z.shared and z.isDiscardPile then return z.id end
+    if z.isDiscardPile then
+      if not z.shared then return z.id end
+      shared = shared or z.id
+    end
   end
-  return nil
+  return shared
 end
 
 -- Nil-safe zone lookup over the session's effective zones (game.zones plus
