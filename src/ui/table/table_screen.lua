@@ -2070,7 +2070,8 @@ function T:drawPreview()
       -- Zones can be displayed turned (ZoneDefinition.orientation); the
       -- pile box is drawn at that angle regardless of face-up state, so
       -- the preview should match what's actually on screen.
-      orientation = self:zoneDefinition(c.zoneId).orientation
+      local zone = self:zoneById(c.zoneId)
+      orientation = zone and zone.orientation or "portrait"
     else
       orientation = "portrait"
     end
