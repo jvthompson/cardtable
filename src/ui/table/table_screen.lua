@@ -8,7 +8,8 @@
 --       onKickPlayer(playerId) (or nil)
 -- Server games (src/ui/screens/server/) also pass:
 --       deckStore (src/data/deck_store.lua) for Load Deck / Save Deck,
---       collectionMode (hides the Pack Generator and Card Library),
+--       collectionMode (hides the Pack Generator; Card Library stays
+--       available so a game can still pull cards from it mid-session),
 --       spectator (watch only: no drags, menus or card hotkeys),
 --       sc (src/net/server_client.lua) for the in-game chat panel (C key);
 --       LAN host/join and practice games don't pass it, so chat stays off
@@ -1324,10 +1325,10 @@ function T:openBoardMenu(mx, my)
     widgetItems[#widgetItems + 1] = { label = "Deck Widget", onSelect = create("deckBuilder") }
   end
   local menu = { { label = "Tokens", onSelect = function() self.tokenPickerOpen = true end },
-    { label = "Widgets", submenu = widgetItems } }
-  if not self.collectionMode then
-    menu[#menu + 1] = { label = "Card Library", onSelect = function() self.libraryOpen = true end }
-  end
+    { label = "Widgets", submenu = widgetItems },
+    -- Available even in collection mode: some games still need to pull
+    -- cards from the library mid-session, not just build a deck from owned ones.
+    { label = "Card Library", onSelect = function() self.libraryOpen = true end } }
   overlays.menu(mx, my, menu)
 end
 

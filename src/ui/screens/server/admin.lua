@@ -290,7 +290,7 @@ function A:drawServer(x, y, w, h)
   f.mode = ui.segmented("as:mode", cx, yy, colW, { { value = "free", label = "Free Play" }, { value = "collection", label = "Collection" } }, f.mode)
   yy = yy + 40 + 8
   local modeHelp = f.mode == "collection"
-    and "Players build decks only from cards they own, and open packs with tokens. Games started now don't allow the Pack Generator or Card Library."
+    and "Players build decks only from cards they own, and open packs with tokens. Games started now don't allow the Pack Generator, though the Card Library stays available during play."
     or "Players can use every card in every game. Collections are kept, in case you switch back."
   ui.text(modeHelp, cx, yy, { w = colW, size = 12, color = c.onSurfaceVariant })
   yy = yy + ui.textHeight(modeHelp, colW, 12) + 16
