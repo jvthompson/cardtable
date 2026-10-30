@@ -75,7 +75,7 @@ function T.drawScenarioList(self, x, y, w, h)
     end
     ro:handle(i, rx, yy + (ROW_H - 40) / 2, yy, ROW_H)
     local fg = sel and c.onSecondaryContainer or c.onSurface
-    ui.icon("auto_stories", rx + 42, yy + (ROW_H - 20) / 2, 20, sel and fg or c.onSurfaceVariant)
+    ui.icon("folder", rx + 42, yy + (ROW_H - 20) / 2, 20, sel and fg or c.onSurfaceVariant)
     local tx = rx + 72
     ui.text(scenario.name == "" and "(unnamed scenario)" or scenario.name, tx, yy + 9,
       { w = rx + rw - 8 - tx, ellipsis = true, weight = sel and "medium" or nil, color = fg })
@@ -515,12 +515,12 @@ function T:drawPlacementView(scenario, x, y, w, h)
   end
 
   local toolbarH = 40
-  local flipW = ui.buttonWidth("Flip", { icon = "flip" })
+  local flipW = ui.buttonWidth("Flip")
   local delW = ui.buttonWidth("Delete", { icon = "delete_outline" })
   ui.text("Right-click the table for the Card Library. Drag placed cards to move them.", x + 12, y,
     { h = toolbarH, valign = "middle", size = 12, color = c.onSurfaceVariant, w = w - 24 - flipW - delW - 16 })
   if ui.button("Flip", x + w - 12 - delW - 8 - flipW, y, flipW, toolbarH,
-    { variant = "outlined", icon = "flip", id = "scen:place:flip", disabled = self.selectedPlacement == nil }) then
+    { variant = "outlined", id = "scen:place:flip", disabled = self.selectedPlacement == nil }) then
     self.selectedPlacement.faceUp = not self.selectedPlacement.faceUp
   end
   if ui.button("Delete", x + w - 12 - delW, y, delW, toolbarH,
