@@ -11,9 +11,16 @@ local sf = require("src.core.state_filter")
 local E = {}
 E.__index = E
 
-function E.new(session, server, hostPlayerId)
+-- hostPlayerId is who to skip when broadcasting (the host already has this
+-- state in-process; a dedicated server passes a synthetic id nobody really
+-- has, so no real player is skipped). ownerId is who may do host-only things
+-- like loading a scenario -- the actual hosting player locally, but the
+-- room's real creator on a dedicated server, where hostPlayerId can't be
+-- used for that. Defaults to hostPlayerId, matching peer-hosted play where
+-- they're the same person.
+function E.new(session, server, hostPlayerId, ownerId)
   return setmetatable({ session = session, server = server, hostPlayerId = hostPlayerId,
-    lastBroadcastRevision = -1, previouslyConnected = {} }, E)
+    ownerId = ownerId or hostPlayerId, lastBroadcastRevision = -1, previouslyConnected = {} }, E)
 end
 
 function E:start()
@@ -229,7 +236,7 @@ function E:handleMessage(clientId, msg)
     elseif t == "requestLoadDeckIntoZone" then
       s:loadDeckIntoZone(p.zoneId, models.DeckConfig.fromJson(p.deck), clientId)
     elseif t == "requestLoadScenario" then
-      if clientId == self.hostPlayerId then s:loadScenario(p.scenarioId, clientId) end
+      if clientId == self.ownerId then s:loadScenario(p.scenarioId, clientId) end
     elseif t == "cardDragPreview" then
       local ids = p.instanceIds or {}
       if #ids > 0 and self:allowedCard(ids[1], clientId) then
