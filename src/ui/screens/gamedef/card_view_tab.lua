@@ -417,6 +417,12 @@ function T:drawForm(card, x, y, w, h)
   card.isFreeCard, th = common.toggleRow(k .. ":freecard", "Free Card",
     "On collection-mode servers, every player always has unlimited copies", fx, yy, fw, card.isFreeCard)
   yy = yy + th + pad
+  if game.hasScenarios then
+    card.isScenarioCard, th = common.toggleRow(k .. ":scenariocard", "Scenario Card",
+      "Belongs to a scenario's card pool (Card Placement / Deck Builder) instead of the regular player card pool",
+      fx, yy, fw, card.isScenarioCard)
+    yy = yy + th + pad
+  end
   ui.endScroll("cv:form:main", yy + off - y)
 end
 

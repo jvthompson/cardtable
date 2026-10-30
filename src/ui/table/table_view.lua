@@ -365,7 +365,12 @@ local function drawPileBox(T, opts)
     CR.drawEmptySlot(cx, cy, s)
   else
     local wig = opts.wiggleKey and V.wiggleAngle(T, opts.wiggleKey) or 0
-    CR.draw({ def = opts.def, faceUp = opts.faceUp, cx = cx, cy = cy, scale = s, angle = (opts.angle or 0) + wig,
+    local angle = (opts.angle or 0) + wig
+    local cardScale = s
+    if math.abs(math.sin(angle)) > 0.5 then
+      cardScale = s * math.min(1, boxW / (CH * s), boxH / (CW * s))
+    end
+    CR.draw({ def = opts.def, faceUp = opts.faceUp, cx = cx, cy = cy, scale = cardScale, angle = angle,
       border = opts.border, alpha = opts.alpha, tint = opts.tint, cardBacks = T.game.cardBacks })
     CR.drawCountBadge(bx + boxW - 12 * s, by + 12 * s, opts.count, s)
     if opts.shuffle then
@@ -862,6 +867,7 @@ local function drawZoneSlot(T, player, zone, isLocal, x, y, rotate)
     drawPileBox(T, {
       cx = cx, cy = cy, count = #cards, def = top and V.def(T, top), faceUp = top and top.faceUp,
       border = border, alpha = top and V.ghostAlpha(T, top.instanceId) or 1, wiggleKey = "zone:" .. player.id .. ":" .. zone.id,
+      angle = CR.orientationTurns(zone.orientation) * 2 * math.pi,
       searched = T:isZoneSearched(zone.id, player.id),
       shuffle = (isLocal and #cards > 0 and zone.shuffleable)
         and { key = "zone:" .. player.id .. ":" .. zone.id, onClick = function() T:shuffleZone(zone.id, "zone:" .. player.id .. ":" .. zone.id) end } or nil,
@@ -966,6 +972,7 @@ local function drawSidebar(T, side, x, y, h)
     local key = "shared:" .. zone.id
     drawPileBox(T, { cx = x + SLOT_W / 2, cy = yy + SLOT_H / 2, count = #cards, def = top and V.def(T, top),
       faceUp = top and top.faceUp, alpha = top and V.ghostAlpha(T, top.instanceId) or 1, wiggleKey = key,
+      angle = CR.orientationTurns(zone.orientation) * 2 * math.pi,
       searched = T:isZoneSearched(zone.id, nil),
       shuffle = (#cards > 0 and zone.shuffleable) and { key = key, onClick = function() T:shuffleZone(zone.id, key) end } or nil })
     addDropZone(T, zone.id, x, yy, SLOT_W, SLOT_H)

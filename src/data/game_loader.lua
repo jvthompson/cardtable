@@ -39,6 +39,7 @@ local function resolveGameImagePaths(game, folderPath)
     id = game.id, name = game.name, cards = cards, sets = game.sets, cardBacks = cardBacks,
     zones = game.zones, tagGroups = game.tagGroups, folderPath = folderPath,
     tableColor = game.tableColor, playmatBorderColor = game.playmatBorderColor,
+    hasScenarios = game.hasScenarios, scenarios = game.scenarios,
   })
 end
 

@@ -100,6 +100,8 @@ function R.mergeLocalImagePaths(remote, localGame)
     tagGroups = remote.tagGroups,
     sets = remote.sets,
     folderPath = localGame.folderPath,
+    hasScenarios = remote.hasScenarios,
+    scenarios = remote.scenarios,
   })
 end
 

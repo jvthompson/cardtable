@@ -104,6 +104,7 @@ function CardDefinition.new(f)
     isFreeCard = f.isFreeCard or false,
     cardBackId = f.cardBackId,
     uniqueBackOrientation = f.uniqueBackOrientation or "portrait",
+    isScenarioCard = f.isScenarioCard or false,
   }
 end
 
@@ -128,6 +129,7 @@ function CardDefinition.fromJson(t)
     cardBackId = t.cardBackId,
     uniqueBackOrientation = enumValue(t.uniqueBackOrientation, M.CardOrientation, "portrait",
       "CardDefinition.uniqueBackOrientation"),
+    isScenarioCard = t.isScenarioCard == true,
   })
 end
 
@@ -160,7 +162,8 @@ function CardDefinition.toJson(c, omitSetId)
     "unownable", c.unownable and true or nil,
     "isFreeCard", c.isFreeCard and true or nil,
     "cardBackId", c.cardBackId,
-    "uniqueBackOrientation", unlessDefault(c.uniqueBackOrientation, "portrait")
+    "uniqueBackOrientation", unlessDefault(c.uniqueBackOrientation, "portrait"),
+    "isScenarioCard", c.isScenarioCard and true or nil
   )
 end
 
@@ -357,6 +360,7 @@ function ZoneDefinition.new(f)
     standardDeck = f.standardDeck or false,
     deckName = f.deckName,
     side = f.side or "left",
+    orientation = f.orientation or "portrait",
     kind = f.kind or "card",
     widgetKind = f.widgetKind or "counter",
     counterStartingValue = f.counterStartingValue or 0,
@@ -382,6 +386,7 @@ function ZoneDefinition.fromJson(t)
     standardDeck = t.standardDeck == true,
     deckName = t.deckName,
     side = enumValue(t.side, M.SharedZoneSide, "left", "ZoneDefinition.side"),
+    orientation = enumValue(t.orientation, M.CardOrientation, "portrait", "ZoneDefinition.orientation"),
     kind = enumValue(t.kind, M.ZoneKind, "card", "ZoneDefinition.kind"),
     widgetKind = enumValue(t.widgetKind, M.ZoneWidgetKind, "counter", "ZoneDefinition.widgetKind"),
     counterStartingValue = t.counterStartingValue,
@@ -407,12 +412,76 @@ function ZoneDefinition.toJson(z)
     "standardDeck", z.standardDeck or nil,
     "deckName", z.deckName,
     "side", unlessDefault(z.side, "left"),
+    "orientation", unlessDefault(z.orientation, "portrait"),
     "kind", unlessDefault(z.kind, "card"),
     "widgetKind", unlessDefault(z.widgetKind, "counter"),
     "counterStartingValue", unlessDefault(z.counterStartingValue, 0),
     "counterStartingColor", unlessDefault(z.counterStartingColor, M.defaultBoardWidgetBackgroundColor),
     "counterStartingTextColor", unlessDefault(z.counterStartingTextColor, M.defaultBoardWidgetTextColor)
   )
+end
+
+---------------------------------------------------------------------------
+-- ScenarioPlacement
+---------------------------------------------------------------------------
+
+local ScenarioPlacement = {}
+M.ScenarioPlacement = ScenarioPlacement
+
+function ScenarioPlacement.new(f)
+  return { definitionId = f.definitionId, x = f.x, y = f.y, faceUp = default(f.faceUp, true) }
+end
+
+function ScenarioPlacement.fromJson(t)
+  return ScenarioPlacement.new({
+    definitionId = requireField(t, "definitionId", "ScenarioPlacement"),
+    x = requireField(t, "x", "ScenarioPlacement"),
+    y = requireField(t, "y", "ScenarioPlacement"),
+    faceUp = default(t.faceUp, true),
+  })
+end
+
+function ScenarioPlacement.toJson(p)
+  return obj("definitionId", p.definitionId, "x", p.x, "y", p.y, "faceUp", unlessDefault(p.faceUp, true))
+end
+
+---------------------------------------------------------------------------
+-- Scenario
+---------------------------------------------------------------------------
+
+local Scenario = {}
+M.Scenario = Scenario
+
+function Scenario.new(f)
+  return { id = f.id, name = f.name, zones = f.zones or {}, placements = f.placements or {}, decks = f.decks or {} }
+end
+
+function Scenario.fromJson(t)
+  return Scenario.new({
+    id = requireField(t, "id", "Scenario"),
+    name = requireField(t, "name", "Scenario"),
+    zones = mapJson(t.zones, ZoneDefinition.fromJson),
+    placements = mapJson(t.placements, ScenarioPlacement.fromJson),
+    decks = mapJson(t.decks, SubDeck.fromJson),
+  })
+end
+
+function Scenario.toJson(s)
+  return obj("id", s.id, "name", s.name, "zones", nonEmptyList(s.zones, ZoneDefinition.toJson),
+    "placements", nonEmptyList(s.placements, ScenarioPlacement.toJson),
+    "decks", nonEmptyList(s.decks, SubDeck.toJson))
+end
+
+function Scenario.subdeck(s, name)
+  for _, d in ipairs(s.decks) do
+    if d.name == name then return d end
+  end
+  return nil
+end
+
+function Scenario.entriesFor(s, name)
+  local d = Scenario.subdeck(s, name)
+  return d and d.entries or {}
 end
 
 ---------------------------------------------------------------------------
@@ -433,6 +502,8 @@ function GameDefinition.new(f)
     sets = f.sets or {},
     tableColor = f.tableColor, -- optional "#RRGGBB"; nil defers to the player's/app's default
     playmatBorderColor = f.playmatBorderColor,
+    hasScenarios = f.hasScenarios or false,
+    scenarios = f.scenarios or {},
     folderPath = f.folderPath, -- local only, never serialized
   }
 end
@@ -481,6 +552,13 @@ function GameDefinition.zoneById(g, id)
   return nil
 end
 
+function GameDefinition.scenarioById(g, id)
+  for _, s in ipairs(g.scenarios) do
+    if s.id == id then return s end
+  end
+  return nil
+end
+
 function GameDefinition.fromJson(t)
   local sets, cards = {}, {}
   if t.sets ~= nil then
@@ -515,6 +593,8 @@ function GameDefinition.fromJson(t)
     tagGroups = mapJson(t.tagGroups, TagGroup.fromJson),
     tableColor = t.tableColor,
     playmatBorderColor = t.playmatBorderColor,
+    hasScenarios = t.hasScenarios == true,
+    scenarios = mapJson(t.scenarios, Scenario.fromJson),
   })
 end
 
@@ -542,6 +622,8 @@ function GameDefinition.toJson(g)
   o.tagGroups = nonEmptyList(g.tagGroups, TagGroup.toJson)
   if g.tableColor then o.tableColor = g.tableColor end
   if g.playmatBorderColor then o.playmatBorderColor = g.playmatBorderColor end
+  if g.hasScenarios then o.hasScenarios = true end
+  o.scenarios = nonEmptyList(g.scenarios, Scenario.toJson)
   return o
 end
 
@@ -795,6 +877,8 @@ function TableState.new(f)
     widgets = f.widgets or {},
     searches = f.searches or {},
     log = f.log or {},
+    loadedZones = f.loadedZones or {},
+    loadedScenarioIds = f.loadedScenarioIds or {},
   }
 end
 
@@ -807,6 +891,8 @@ function TableState.fromJson(t)
     widgets = mapJson(t.widgets, BoardWidgetInstance.fromJson),
     searches = mapJson(t.searches, ActiveSearch.fromJson),
     log = mapJson(t.log, LogEntry.fromJson),
+    loadedZones = mapJson(t.loadedZones, ZoneDefinition.fromJson),
+    loadedScenarioIds = stringList(t.loadedScenarioIds),
   })
 end
 
@@ -818,7 +904,9 @@ function TableState.toJson(s)
     "revision", s.revision,
     "widgets", nonEmptyList(s.widgets, BoardWidgetInstance.toJson),
     "searches", nonEmptyList(s.searches, ActiveSearch.toJson),
-    "log", nonEmptyList(s.log, LogEntry.toJson)
+    "log", nonEmptyList(s.log, LogEntry.toJson),
+    "loadedZones", nonEmptyList(s.loadedZones, ZoneDefinition.toJson),
+    "loadedScenarioIds", nonEmptyList(s.loadedScenarioIds)
   )
 end
 

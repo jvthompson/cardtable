@@ -44,7 +44,13 @@ function Host:zoneOwnerId(zoneId)
     local w = self.session:findWidget(parsed.widgetInstanceId)
     return w and w.ownerId or nil
   end
-  local zone = models.GameDefinition.zoneById(self.session.game, zoneId)
+  local zone
+  for _, z in ipairs(self.session:effectiveZones()) do
+    if z.id == zoneId then
+      zone = z
+      break
+    end
+  end
   if zone and zone.shared then return nil end
   return self:acting()
 end
@@ -96,6 +102,7 @@ end
 
 function Host:shuffleZone(zoneId) self.session:shuffleZone(zoneId, self:zoneOwnerId(zoneId), self:acting()) end
 function Host:loadDeckIntoZone(zoneId, deck) self.session:loadDeckIntoZone(zoneId, deck, self:acting()) end
+function Host:loadScenario(scenarioId) self.session:loadScenario(scenarioId, self:acting()) end
 function Host:startSearchZone(zoneId) self.session:startSearchZone(zoneId, self:zoneOwnerId(zoneId), self:acting()) end
 
 function Host:startSearchPile(rootId)
@@ -180,6 +187,8 @@ function Client:shuffleZone(zoneId) self.send("requestShuffleZone", p("zoneId", 
 function Client:loadDeckIntoZone(zoneId, deck)
   self.send("requestLoadDeckIntoZone", p("zoneId", zoneId, "deck", models.DeckConfig.toJson(deck)))
 end
+
+function Client:loadScenario(scenarioId) self.send("requestLoadScenario", p("scenarioId", scenarioId)) end
 
 function Client:startSearchZone(zoneId) self.send("requestStartSearchZone", p("zoneId", zoneId)) end
 function Client:startSearchPile(rootId) self.send("requestStartSearchPile", p("pileRootInstanceId", rootId)) end

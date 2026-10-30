@@ -253,6 +253,77 @@ return function(t)
     end)
   end)
 
+  t.describe("scenarios", function()
+    local function scenarioGame()
+      return game({
+        cards = { H.cardDef("a", {}, { cardTitle = "A" }), H.cardDef("b", {}, { cardTitle = "B" }), H.cardDef("c", {}, { cardTitle = "C" }) },
+        hasScenarios = true,
+        scenarios = {
+          models.Scenario.new({
+            id = "scen1", name = "Opening",
+            zones = {
+              zone({ id = "battlefield", name = "Battlefield", shared = true,
+                entries = { models.DeckEntry.new("a", 2), models.DeckEntry.new("unknown", 3) } }),
+              zone({ id = "boss", name = "Boss Deck", shared = true, dealsBuiltDeck = true, deckType = "boss_deck",
+                entries = { models.DeckEntry.new("b", 5) } }),
+            },
+            placements = {
+              models.ScenarioPlacement.new({ definitionId = "c", x = 0.2, y = 0.3, faceUp = false }),
+              models.ScenarioPlacement.new({ definitionId = "missing", x = 0.5, y = 0.5 }),
+            },
+            decks = { models.SubDeck.new("boss_deck", { models.DeckEntry.new("a", 2), models.DeckEntry.new("c", 1) }) },
+          }),
+        },
+      })
+    end
+    local function scenarioSession()
+      return Session.new({ game = scenarioGame(), localPlayerId = "p1", now = now,
+        initialState = H.state({ players = { p1, p2 } }) })
+    end
+
+    t.it("creates zones findable via zoneDefinition/effectiveZones, deals entries (unknown ids skipped), spawns placements", function()
+      local s = scenarioSession()
+      s:loadScenario("scen1", "p1")
+      t.eq(s:zoneDefinition("battlefield").name, "Battlefield")
+      t.eq(#s:effectiveZones(), 2)
+      t.eq(defIds(inZone(s, "battlefield", nil)), { "a", "a" })
+      local placed = util.find(s.state.cards, function(c) return c.zone == "table" and c.definitionId == "c" end)
+      t.ok(placed, "the known placement should exist")
+      t.eq({ placed.zone, placed.ownerId, placed.faceUp, placed.x, placed.y }, { "table", nil, false, 0.2, 0.3 })
+      t.eq(#util.filter(s.state.cards, function(c) return c.definitionId == "missing" end), 0)
+      t.eq(lastLog(s), 'Alice loaded the "Opening" scenario.')
+    end)
+
+    t.it("a dealsBuiltDeck zone deals its named subdeck instead of its own entries", function()
+      local s = scenarioSession()
+      s:loadScenario("scen1", "p1")
+      t.eq(defIds(inZone(s, "boss", nil)), { "a", "a", "c" })
+    end)
+
+    t.it("double-load and unknown scenario id are no-ops", function()
+      local s = scenarioSession()
+      s:loadScenario("scen1", "p1")
+      local revision, count, logLen = s.state.revision, #s.state.cards, #s.state.log
+      s:loadScenario("scen1", "p1")
+      t.eq(s.state.revision, revision)
+      t.eq(#s.state.cards, count)
+      t.eq(#s.state.log, logLen)
+      s:loadScenario("doesnotexist", "p1")
+      t.eq(s.state.revision, revision)
+      t.eq(#s.state.cards, count)
+      t.eq(#s.state.log, logLen)
+    end)
+
+    t.it("a card can be drawn out of a loaded zone afterwards", function()
+      local s = scenarioSession()
+      s:loadScenario("scen1", "p1")
+      s:drawFromZone("battlefield", nil, "p1", 1)
+      local drawn = util.filter(s.state.cards, function(c) return c.zone == "hand" and c.ownerId == "p1" end)
+      t.eq(#drawn, 1)
+      t.eq(drawn[1].definitionId, "a")
+    end)
+  end)
+
   t.describe("stacking", function()
     local function session()
       return Session.new({ game = game({}), localPlayerId = "p1", now = now, initialState = H.state({ players = { p1, p2 }, cards = {
@@ -350,11 +421,25 @@ return function(t)
       c:moveGroup("p", { "a", "b" }, 1, 0)
       c:returnToZone("i", "z")
       c:stopSearch()
+      c:loadScenario("scen1")
       t.eq(sent[1], { "requestMove", '{"instanceId":"i","x":0.5,"y":0.25}' })
       t.eq(sent[2], { "requestGiveCard", '{"instanceId":"i","newOwnerId":null}' })
       t.eq(sent[3], { "requestMoveGroup", '{"primaryInstanceId":"p","passengerRootInstanceIds":["a","b"],"x":1,"y":0}' })
       t.eq(sent[4], { "requestReturnToZone", '{"instanceId":"i","zoneId":"z","toBottom":false}' })
       t.eq(sent[5], { "requestStopSearch", "{}" })
+      t.eq(sent[6], { "requestLoadScenario", '{"scenarioId":"scen1"}' })
+    end)
+    t.it("host controller loads a scenario by delegating straight to the session", function()
+      local g2 = game({ hasScenarios = true, scenarios = {
+        models.Scenario.new({ id = "scen1", name = "Opening", zones = {
+          zone({ id = "battlefield", name = "Battlefield", shared = true, entries = { models.DeckEntry.new("a", 1) } }),
+        } }),
+      } })
+      local s = Session.new({ game = g2, localPlayerId = "p1", now = now, initialState = H.state({ players = { p1 } }) })
+      local c = controller.Host.new(s)
+      c:loadScenario("scen1")
+      t.eq(s:zoneDefinition("battlefield").name, "Battlefield")
+      t.eq(lastLog(s), 'Alice loaded the "Opening" scenario.')
     end)
   end)
 end

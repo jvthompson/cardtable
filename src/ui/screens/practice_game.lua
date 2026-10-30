@@ -40,6 +40,7 @@ function S.new(opts)
     leaveConfirmationMessage = "Leave this practice game and return to the home screen?",
     onLeaveGame = function() app().popToHome() end,
     onSaveGame = game.folderPath and function() self:saveGame() end or nil,
+    canLoadScenario = true,
   })
   self.presenceListener = function() self:publishPresence() end
   self.session:addListener(self.presenceListener)

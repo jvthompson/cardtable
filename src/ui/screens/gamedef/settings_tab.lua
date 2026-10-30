@@ -230,7 +230,14 @@ function T:draw(x, y, w, h)
   local yy = y + common.PAD - off
 
   game.name = ui.textField("gs:name", cx, yy, cw, game.name, { label = "Game Name" })
-  yy = yy + common.FIELD_H + common.SECTION_GAP
+  yy = yy + common.FIELD_H + common.GAP
+
+  local scenariosH
+  game.hasScenarios, scenariosH = common.toggleRow("gs:scenarios", "Contains Scenarios",
+    "Scenarios are named setups -- shared zones, starting cards, and cards placed on the table -- that the host "
+      .. "can load from the Game Menu during a session. Turn this on to edit them on the Scenarios tab.",
+    cx, yy, cw, game.hasScenarios)
+  yy = yy + scenariosH + common.SECTION_GAP
 
   -- Card backs.
   local hh, add = common.sectionHeader("gs:backs", "Card Backs", cx, yy, cw, {

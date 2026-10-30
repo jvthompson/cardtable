@@ -106,7 +106,37 @@ function Editor:load(folderPath, game)
     require("src.ui.screens.gamedef.sets_tab").new(self),
     require("src.ui.screens.gamedef.card_view_tab").new(self),
   }
+  self.scenarioTab = nil
   resolver.clearCache()
+end
+
+-- "Scenarios" is only in the tab bar while the game opts into it.
+function Editor:tabLabels()
+  if not self.game.hasScenarios then return TAB_LABELS end
+  local labels = {}
+  for i, l in ipairs(TAB_LABELS) do labels[i] = l end
+  labels[#labels + 1] = "Scenarios"
+  return labels
+end
+
+-- Lazily built so a game that never turns on scenarios never pays for it.
+function Editor:scenarioTabOrNil()
+  if not self.game.hasScenarios then return nil end
+  if not self.scenarioTab then self.scenarioTab = require("src.ui.screens.gamedef.scenario_tab").new(self) end
+  return self.scenarioTab
+end
+
+-- The tab instance self.tab currently points to. Falls back to (and
+-- reclamps self.tab onto) Cards if hasScenarios was turned off while the
+-- Scenarios tab was selected -- e.g. opening a different game definition
+-- without hasScenarios while tab 5 was still active.
+function Editor:activeTab()
+  if self.tab == 5 then
+    local scenarioTab = self:scenarioTabOrNil()
+    if scenarioTab then return scenarioTab end
+    self.tab = 4
+  end
+  return self.tabs[self.tab]
 end
 
 -- Warns first when cards without a set would be dropped from the file
@@ -152,10 +182,11 @@ function Editor:update(dt)
   for _, t in ipairs(self.tabs) do
     if t.update then t:update(dt) end
   end
+  if self.scenarioTab and self.scenarioTab.update then self.scenarioTab:update(dt) end
 end
 
 function Editor:keypressed(key)
-  local t = self.tabs[self.tab]
+  local t = self:activeTab()
   if t.keypressed then t:keypressed(key) end
 end
 
@@ -173,14 +204,14 @@ function Editor:draw(x, y, w, h)
     { icon = "save", tooltip = "Save", id = "gde:save", disabled = busy, onClick = function() self:save() end },
   })
   local tabY = y + tbH + 1
-  local newTab, tabH = widgets.tabBar("gde:tabs", x, tabY, w, TAB_LABELS, self.tab)
+  local newTab, tabH = widgets.tabBar("gde:tabs", x, tabY, w, self:tabLabels(), self.tab)
   if newTab ~= self.tab then
     self.tab = newTab
     ui.blur()
   end
   local by = tabY + tabH
   ui.pushClip(x, by, w, y + h - by)
-  self.tabs[self.tab]:draw(x, by, w, y + h - by)
+  self:activeTab():draw(x, by, w, y + h - by)
   ui.popClip()
 end
 

@@ -70,6 +70,7 @@ function T.new(opts)
   self.tokenImages = {}
   self:loadTokenImages()
   self.library = filterBar.newState(self.game)
+  self.libraryScenario = false
   -- Box selection: selected card instance ids (whole piles) and token ids.
   -- selRoots/selCount are rebuilt each frame by refreshSelection().
   self.selection = { cards = {}, tokens = {} }
@@ -88,7 +89,7 @@ function T:derive()
   local acting = session:actingPlayerId()
   local D = { ownedZones = {}, sharedZones = {}, handCount = {}, zoneCards = {}, widgetFor = {},
     cardsByZoneId = {}, cardsById = {}, pileSearched = {} }
-  for _, z in ipairs(self.game.zones) do
+  for _, z in ipairs(session:effectiveZones()) do
     if z.shared then D.sharedZones[#D.sharedZones + 1] = z else D.ownedZones[#D.ownedZones + 1] = z end
   end
   local tableCards, hand = {}, {}
@@ -159,14 +160,23 @@ function T:cardFacesAwayFromMe(ownerId)
 end
 
 function T:localDiscardZoneId()
-  for _, z in ipairs(self.game.zones) do
+  for _, z in ipairs(self.session:effectiveZones()) do
     if not z.shared and z.isDiscardPile then return z.id end
   end
   return nil
 end
 
+-- Nil-safe zone lookup over the session's effective zones (game.zones plus
+-- any zones loaded from a scenario).
+function T:zoneById(zoneId)
+  for _, z in ipairs(self.session:effectiveZones()) do
+    if z.id == zoneId then return z end
+  end
+  return nil
+end
+
 function T:isSharedZone(zoneId)
-  local z = models.GameDefinition.zoneById(self.game, zoneId)
+  local z = self:zoneById(zoneId)
   return z ~= nil and z.shared
 end
 
@@ -1155,9 +1165,9 @@ function T:cardMenuItems(card, onSearch)
     local send = {}
     if card.zone ~= "hand" then send[#send + 1] = { label = "Hand", onSelect = function() C:moveToHand(card.instanceId) end } end
     local discardId = self:localDiscardZoneId()
-    local discard = discardId and models.GameDefinition.zoneById(self.game, discardId)
+    local discard = discardId and self:zoneById(discardId)
     if discard then send[#send + 1] = { label = "Discard", submenu = placementMenu(discard) } end
-    for _, zone in ipairs(self.game.zones) do
+    for _, zone in ipairs(self.session:effectiveZones()) do
       if zone.kind == "card" and not zone.isDiscardPile then
         send[#send + 1] = { label = zone.name, submenu = placementMenu(zone) }
       end
@@ -1218,9 +1228,9 @@ function T:selectionMenuItems(mx, my)
     sound.play("draw")
   end } }
   local discardId = self:localDiscardZoneId()
-  local discard = discardId and models.GameDefinition.zoneById(self.game, discardId)
+  local discard = discardId and self:zoneById(discardId)
   if discard then send[#send + 1] = { label = "Discard", submenu = placementMenu(discard) } end
-  for _, zone in ipairs(self.game.zones) do
+  for _, zone in ipairs(self.session:effectiveZones()) do
     if zone.kind == "card" and not zone.isDiscardPile then
       send[#send + 1] = { label = zone.name, submenu = placementMenu(zone) }
     end
@@ -1410,6 +1420,29 @@ function T:promptLoadDeck(zone)
   require("src.ui.screens.deck_library_dialog").open(self.game, { zone }, function(deck)
     self.controller:loadDeckIntoZone(zone.id, deck)
   end, { store = self.deckStore })
+end
+
+function T:promptLoadScenario()
+  local loaded = {}
+  for _, id in ipairs(self.state.loadedScenarioIds) do loaded[id] = true end
+  local rowH = 44
+  overlays.dialog({
+    title = "Load Scenario", width = 420,
+    content = function(d, x, y, cw)
+      local yy = y
+      for _, scenario in ipairs(self.game.scenarios) do
+        local isLoaded = loaded[scenario.id] == true
+        local label = scenario.name .. (isLoaded and " (loaded)" or "")
+        if ui.button(label, x, yy, cw, 40, { variant = "outlined", disabled = isLoaded, id = "scenario:" .. scenario.id }) then
+          self.controller:loadScenario(scenario.id)
+          d:close()
+        end
+        yy = yy + rowH
+      end
+      return yy - y - (rowH - 40)
+    end,
+    actions = { { label = "Cancel", variant = "text" } },
+  })
 end
 
 function T:saveDeckWidget(w)
@@ -1697,7 +1730,8 @@ function T:drawGameMenu()
       if p.role ~= "host" and p.connected then kickable[#kickable + 1] = p end
     end
   end
-  local h = 64 + 16 + 40 + (self.onSaveGame and 52 or 0) + 52 + 52 + 16
+  local showLoadScenario = self.canLoadScenario and self.game.hasScenarios and #self.game.scenarios > 0
+  local h = 64 + 16 + 40 + (self.onSaveGame and 52 or 0) + 52 + 52 + (showLoadScenario and 52 or 0) + 16
   if self.onKickPlayer then h = h + 20 + 24 + math.max(1, #kickable) * 48 end
   local x, y, w = panel.draw("gamemenu", 360, h, "Game Menu", close)
   local yy = y + 16
@@ -1722,6 +1756,13 @@ function T:drawGameMenu()
     require("src.ui.screens.controls_dialog").open()
   end
   yy = yy + 40
+  if showLoadScenario then
+    yy = yy + 12
+    if ui.button("Load Scenario...", x + 16, yy, w - 32, 40, { variant = "outlined", icon = "layers", color = white, id = "gm:scenario" }) then
+      self:promptLoadScenario()
+    end
+    yy = yy + 40
+  end
   if self.onKickPlayer then
     yy = yy + 20
     ui.text("Kick a Player", x + 16, yy, { weight = "bold", color = { 1, 1, 1, 0.7 } })
@@ -1883,7 +1924,7 @@ function T:drawSearch()
     end
     title = "Zone"
     local parsed = dwz.parse(search.targetId)
-    local z = models.GameDefinition.zoneById(self.game, parsed and parsed.realZoneId or search.targetId)
+    local z = self:zoneById(parsed and parsed.realZoneId or search.targetId)
     if z then title = z.name end
   else
     cards = stacks.stackOf(self.state.cards, search.targetId)
@@ -1918,13 +1959,22 @@ function T:drawLibrary()
   local L = self.library
   local game = self.game
   local visible = filterBar.visible(L, game)
+  if game.hasScenarios then
+    visible = util.filter(visible, function(def) return (def.isScenarioCard == true) == self.libraryScenario end)
+  end
   local sw, sh = ui.screenSize()
   local pw, ph = math.min(1280, sw - 40), math.min(720, sh - overlays.contentTop - 40)
   local saved = theme.c
   theme.c = theme.dark
   local x, y, w, h = panel.draw("library", pw, ph, "Card Library", function() self.libraryOpen = false end,
     #visible .. " of " .. #game.cards .. " card" .. (#game.cards == 1 and "" or "s"))
-  local yy = filterBar.drawFilters("lib", L, game, x + 16, y, w - 32) + 12
+  local yy = y
+  if game.hasScenarios then
+    self.libraryScenario = ui.segmented("lib:mode", x + 16, yy, w - 32,
+      { { value = false, label = "Player Cards" }, { value = true, label = "Scenario Cards" } }, self.libraryScenario, { h = 40 })
+    yy = yy + 52
+  end
+  yy = filterBar.drawFilters("lib", L, game, x + 16, yy, w - 32) + 12
   yy = filterBar.drawSearch("lib", L, game, x + 16, yy, w - 32, { labelBackground = PANEL, clearColor = WHITE }) + 4
   local gridH = y + h - yy
   if #visible == 0 then

@@ -202,10 +202,26 @@ function Session:playerName(playerId)
   return p and p.name or playerId
 end
 
+-- game.zones followed by any zones loaded into the session from a scenario.
+function Session:effectiveZones()
+  local zones = {}
+  for _, z in ipairs(self.game.zones) do zones[#zones + 1] = z end
+  for _, z in ipairs(self.state.loadedZones) do zones[#zones + 1] = z end
+  return zones
+end
+
 function Session:zoneDefinition(zoneId)
   local parsed = dwz.parse(zoneId)
   local realId = parsed and parsed.realZoneId or zoneId
   local zone = models.GameDefinition.zoneById(self.game, realId)
+  if not zone then
+    for _, z in ipairs(self.state.loadedZones) do
+      if z.id == realId then
+        zone = z
+        break
+      end
+    end
+  end
   if not zone then error("unknown zone '" .. tostring(zoneId) .. "'", 2) end
   return zone
 end
@@ -443,6 +459,71 @@ function Session:loadDeckIntoZone(zoneId, deck, actingPlayerId)
     label = table.concat(names, ", ", 1, #names - 1) .. ", and " .. names[#names]
   end
   self:log(actingPlayerId, "loaded a deck into the " .. label .. ".")
+  self:notify()
+end
+
+local function containsString(list, v)
+  for _, x in ipairs(list) do
+    if x == v then return true end
+  end
+  return false
+end
+
+-- Loads a named scenario: appends its shared zones (skipping any id
+-- collision with an existing effective zone), deals each newly added
+-- zone's starting cards (or its built subdeck, if dealsBuiltDeck), and
+-- spawns its authored table placements. No-op for an unknown scenario or
+-- one already loaded this session.
+function Session:loadScenario(scenarioId, actingPlayerId)
+  local scenario = models.GameDefinition.scenarioById(self.game, scenarioId)
+  if not scenario or containsString(self.state.loadedScenarioIds, scenarioId) then return end
+
+  local existingIds = {}
+  for _, z in ipairs(self:effectiveZones()) do existingIds[z.id] = true end
+
+  local newZones = {}
+  for _, z in ipairs(scenario.zones) do
+    if not existingIds[z.id] then
+      newZones[#newZones + 1] = z
+      existingIds[z.id] = true
+    end
+  end
+
+  local loadedZones = util.shallowCopy(self.state.loadedZones)
+  for _, z in ipairs(newZones) do loadedZones[#loadedZones + 1] = z end
+  local loadedScenarioIds = util.shallowCopy(self.state.loadedScenarioIds)
+  loadedScenarioIds[#loadedScenarioIds + 1] = scenarioId
+  self.state = util.copyWith(self.state, { loadedZones = loadedZones, loadedScenarioIds = loadedScenarioIds })
+
+  local newCards = {}
+  for _, zone in ipairs(newZones) do
+    local entries = zone.dealsBuiltDeck and models.Scenario.entriesFor(scenario, zone.deckType) or zone.entries
+    local ids = {}
+    for _, e in ipairs(entries) do
+      if self.definitionsById[e.definitionId] then
+        for _ = 1, e.quantity do ids[#ids + 1] = e.definitionId end
+      end
+    end
+    if zone.autoShuffle then util.shuffle(ids) end
+    for _, id in ipairs(ids) do
+      newCards[#newCards + 1] = models.CardInstance.new({
+        instanceId = uuid.v4(), definitionId = id, x = 0.5, y = 0.5, zIndex = 0, faceUp = zone.faceUp,
+        zone = "zone", zoneId = zone.id, ownerId = nil, unownable = self.definitionsById[id].unownable,
+      })
+    end
+  end
+
+  for _, p in ipairs(scenario.placements) do
+    if self.definitionsById[p.definitionId] then
+      newCards[#newCards + 1] = models.CardInstance.new({
+        instanceId = uuid.v4(), definitionId = p.definitionId, x = p.x, y = p.y, zIndex = 0, faceUp = p.faceUp,
+        zone = "table", ownerId = nil, unownable = self.definitionsById[p.definitionId].unownable,
+      })
+    end
+  end
+
+  self.state = A.dealNewCards(self.state, newCards)
+  self:log(actingPlayerId, 'loaded the "' .. scenario.name .. '" scenario.')
   self:notify()
 end
 

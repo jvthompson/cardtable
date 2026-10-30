@@ -63,7 +63,7 @@ function E:broadcast()
   if state.revision == self.lastBroadcastRevision then return end
   self.lastBroadcastRevision = state.revision
   local visible = {}
-  for _, z in ipairs(self.session.game.zones) do
+  for _, z in ipairs(self.session:effectiveZones()) do
     if z.visibleToAll then visible[z.id] = true end
   end
   for _, p in ipairs(state.players) do
@@ -86,7 +86,13 @@ function E:zoneOwnerId(zoneId, requester)
     local w = self:widget(parsed.widgetInstanceId)
     return w and w.ownerId or nil
   end
-  local zone = models.GameDefinition.zoneById(self.session.game, zoneId)
+  local zone
+  for _, z in ipairs(self.session:effectiveZones()) do
+    if z.id == zoneId then
+      zone = z
+      break
+    end
+  end
   if zone and zone.shared then return nil end
   return requester
 end
@@ -208,6 +214,8 @@ function E:handleMessage(clientId, msg)
       s:createCardFromLibrary(p.definitionId, num(p.x), num(p.y), clientId)
     elseif t == "requestLoadDeckIntoZone" then
       s:loadDeckIntoZone(p.zoneId, models.DeckConfig.fromJson(p.deck), clientId)
+    elseif t == "requestLoadScenario" then
+      if clientId == self.hostPlayerId then s:loadScenario(p.scenarioId, clientId) end
     elseif t == "cardDragPreview" then
       local ids = p.instanceIds or {}
       if #ids > 0 and self:allowedCard(ids[1], clientId) then

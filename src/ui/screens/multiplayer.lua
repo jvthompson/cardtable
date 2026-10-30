@@ -447,6 +447,7 @@ function HostGame.new(opts)
     onLeaveGame = function() self:endGame() end,
     onKickPlayer = function(id) self.server:kick(id) end,
     onSaveGame = game.folderPath and function() self:saveGame() end or nil,
+    canLoadScenario = true,
   })
   self.presenceListener = function() self:publishPresence() end
   self.session:addListener(self.presenceListener)
