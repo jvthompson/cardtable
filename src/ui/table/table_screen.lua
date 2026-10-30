@@ -224,7 +224,8 @@ function T:refreshSelection()
   end
   local roots, n = {}, 0
   for rootId, cards in pairs(D.pileGroups) do
-    if stacks.topOf(cards).ownerId == acting then
+    local topOwner = stacks.topOf(cards).ownerId
+    if topOwner == nil or topOwner == acting then
       for _, c in ipairs(cards) do
         if sel.cards[c.instanceId] then
           roots[rootId], n = true, n + 1
@@ -289,7 +290,8 @@ function T:finishBoxSelect(b)
   local acting = self.session:actingPlayerId()
   local sel = self.selection
   for _, it in ipairs(self.prevItems) do
-    if (it.kind == "tableCard" or it.kind == "pile") and it.card.ownerId == acting and selection.boxHits(rect, it) then
+    if (it.kind == "tableCard" or it.kind == "pile") and (it.card.ownerId == nil or it.card.ownerId == acting)
+      and selection.boxHits(rect, it) then
       for _, c in ipairs(self.derived.pileGroups[it.rootId] or {}) do sel.cards[c.instanceId] = true end
     elseif it.kind == "token" and self:isSelectableToken(it.widget) and selection.boxHits(rect, it) then
       sel.tokens[it.widget.instanceId] = true
@@ -366,7 +368,7 @@ end
 -- Selected roots when the hovered card belongs to the selection (hotkeys
 -- then act on all of it), else nil.
 function T:hoveredSelectionRoots()
-  local c = self:ownedHoveredTableCard()
+  local c = self:actableHoveredTableCard()
   if not c or not self.selRoots[stacks.rootIdOf(self.state.cards, c)] then return nil end
   return self:selectedRootList()
 end
@@ -452,9 +454,13 @@ function T:hoveredCard()
   return self.hoveredId and self.derived.cardsById[self.hoveredId] or nil
 end
 
-function T:ownedHoveredTableCard()
+-- The hovered table card, if it's mine or unowned (anyone's to act on),
+-- else nil.
+function T:actableHoveredTableCard()
   local c = self:hoveredCard()
-  if not c or c.zone ~= "table" or c.ownerId ~= self.session:actingPlayerId() then return nil end
+  if not c or c.zone ~= "table" then return nil end
+  local acting = self.session:actingPlayerId()
+  if c.ownerId ~= nil and c.ownerId ~= acting then return nil end
   return c
 end
 
@@ -465,7 +471,7 @@ function T:rotateHovered(clockwise)
     sound.play(clockwise and "tap" or "untap")
     return
   end
-  local c = self:ownedHoveredTableCard()
+  local c = self:actableHoveredTableCard()
   if not c then return end
   self.controller:rotateStack(stacks.rootIdOf(self.state.cards, c), clockwise)
   sound.play(clockwise and "tap" or "untap")
@@ -477,7 +483,7 @@ function T:bringHoveredToFront()
     for _, rootId in ipairs(roots) do self.controller:bringToFront(rootId) end
     return
   end
-  local c = self:ownedHoveredTableCard()
+  local c = self:actableHoveredTableCard()
   if not c then return end
   self.controller:bringToFront(stacks.rootIdOf(self.state.cards, c))
 end
@@ -497,7 +503,7 @@ function T:flipHovered()
 end
 
 function T:discardHovered()
-  local c = self:ownedHoveredTableCard()
+  local c = self:actableHoveredTableCard()
   if not c then return end
   local zoneId = self:localDiscardZoneId()
   if not zoneId then return end
@@ -1145,12 +1151,15 @@ end
 
 function T:cardMenuItems(card, onSearch)
   local acting = self.session:actingPlayerId()
-  local isOwner = not card.unownable and card.ownerId == acting
-  if not isOwner and not onSearch then return nil end
+  -- An unowned card (including every unownable one, which never has an
+  -- owner) is fair game for any player, same as everywhere else cards are
+  -- moved/flipped/rotated (see flipHovered, Host:isOwnedOrUnowned).
+  local canAct = card.ownerId == nil or card.ownerId == acting
+  if not canAct and not onSearch then return nil end
   local items = {}
   local isTable = card.zone == "table"
   local C = self.controller
-  if isOwner then
+  if canAct then
     local function placementMenu(zone)
       local sub = { { label = "Top", onSelect = function() C:returnToZone(card.instanceId, zone.id, false) end } }
       if zone.shuffleable then
@@ -1175,7 +1184,7 @@ function T:cardMenuItems(card, onSearch)
     items[#items + 1] = { label = "Send to...", submenu = send }
   end
   if onSearch then items[#items + 1] = { label = "Search...", onSelect = onSearch } end
-  if isOwner and isTable then
+  if canAct and isTable then
     local rootId = stacks.rootIdOf(self.state.cards, card)
     items[#items + 1] = { label = "Flip", onSelect = function() C:flipCard(card.instanceId) end }
     items[#items + 1] = { label = "Rotate", submenu = self:rotateMenu({ rootId }) }
@@ -1528,7 +1537,8 @@ function T:applySelectionToPress(item, src)
   if isToken then
     selectable = self:isSelectableToken(item.widget)
   else
-    selectable = item.card.ownerId == self.session:actingPlayerId()
+    local ownerId = item.card.ownerId
+    selectable = ownerId == nil or ownerId == self.session:actingPlayerId()
   end
   if selectable and love.keyboard.isDown("lctrl", "rctrl") then
     src.onClick = function() self:toggleSelected(item) end
