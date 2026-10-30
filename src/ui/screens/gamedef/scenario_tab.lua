@@ -119,6 +119,7 @@ end
 function T:draw(x, y, w, h)
   local game = self.editor.game
   self.pendingRemove = nil
+  self.hoveredId = nil
   listDetail.draw(self, x, y, w, h, game.scenarios, 300, T.drawScenarioList, T.drawScenarioDetail,
     "Add a scenario to get started")
   if self.pendingRemove then
@@ -130,6 +131,7 @@ function T:draw(x, y, w, h)
     self.selected = i and game.scenarios[math.min(i, #game.scenarios)] or nil
     self.pendingRemove = nil
   end
+  ui.overlay(function() self:drawPreview() end)
 end
 
 function T:keypressed(key)
@@ -378,11 +380,13 @@ function T:drawDeckPool(scenario, deckType, x, y, w, h)
   end
   local sd = models.Scenario.subdeck(scenario, deckType)
   local nameH = poolGrid.nameH()
+  local folder = self.editor.folderPath
+  local displayBacks = common.displayCardBacks(folder, game.cardBacks)
   poolGrid.draw("scendeckpool", visible, x, yy, w, y + h - yy, 12, function(def, i, tx, ty, tileW, cx)
     local r = ui.region("scendeck:card:" .. def.id, cx - poolGrid.PW / 2, ty, poolGrid.PW, poolGrid.PH + 6 + nameH,
       { cursor = "hand" })
-    CR.draw({ def = def, faceUp = true, cx = cx, cy = ty + poolGrid.PH / 2, scale = poolGrid.SCALE,
-      angle = CR.orientationTurns(def.orientation) * 2 * math.pi, cardBacks = game.cardBacks })
+    CR.draw({ def = common.displayCard(folder, def), faceUp = true, cx = cx, cy = ty + poolGrid.PH / 2, scale = poolGrid.SCALE,
+      angle = CR.orientationTurns(def.orientation) * 2 * math.pi, cardBacks = displayBacks })
     local n = 0
     if sd then
       for _, e in ipairs(sd.entries) do
@@ -391,8 +395,25 @@ function T:drawDeckPool(scenario, deckType, x, y, w, h)
     end
     if n > 0 then CR.drawCountBadge(cx + poolGrid.PW / 2 - 12, ty + 12, n, 1) end
     ui.text(def.cardTitle, tx, ty + poolGrid.PH + 6, { size = 11, w = tileW, align = "center", maxLines = poolGrid.NAME_LINES })
+    if r.hovered then self.hoveredId = def.id end
     if r.clicked then self:addDeckCopy(scenario, deckType, def.id) end
   end)
+end
+
+-- Space preview: a big copy of the hovered pool card, as elsewhere in the
+-- app (deck_editor.lua, the table screen). The editor's GameDefinition
+-- holds bare image paths, so the preview needs a resolved display copy
+-- just like the pool tiles do.
+function T:drawPreview()
+  if overlays.anyOpen() or ui.focus or not love.keyboard.isDown("space") then return end
+  local game = self.editor.game
+  local def = self.hoveredId and models.GameDefinition.cardById(game, self.hoveredId)
+  if not def then return end
+  local folder = self.editor.folderPath
+  local display = common.displayCard(folder, def)
+  local displayBacks = common.displayCardBacks(folder, game.cardBacks)
+  local sw, sh = ui.screenSize()
+  CR.drawPreview(CR.definitionFaces(display, displayBacks), displayBacks, sw, sh, (ui.mouse()))
 end
 
 function T:drawDeckList(scenario, deckType, x, y, w, h)
@@ -492,13 +513,16 @@ function T:drawPlacementLibrary(game)
     visible = util.filter(visible, function(def) return (def.isScenarioCard == true) == self.placementLibraryScenario end)
   end
   local nameH = poolGrid.nameH()
+  local folder = self.editor.folderPath
+  local displayBacks = common.displayCardBacks(folder, game.cardBacks)
   poolGrid.draw("scenplacelib:grid", visible, x, yy, w, y + h - yy, 12, function(def, i, tx, ty, tileW, cx)
     local r = ui.region("scenplacelib:card:" .. def.id, cx - poolGrid.PW / 2, ty, poolGrid.PW, poolGrid.PH + 6 + nameH,
       { cursor = "hand" })
-    CR.draw({ def = def, faceUp = true, cx = cx, cy = ty + poolGrid.PH / 2, scale = poolGrid.SCALE,
-      angle = CR.orientationTurns(def.orientation) * 2 * math.pi, cardBacks = game.cardBacks })
+    CR.draw({ def = common.displayCard(folder, def), faceUp = true, cx = cx, cy = ty + poolGrid.PH / 2, scale = poolGrid.SCALE,
+      angle = CR.orientationTurns(def.orientation) * 2 * math.pi, cardBacks = displayBacks })
     ui.text(def.cardTitle, tx, ty + poolGrid.PH + 6,
       { size = 11, w = tileW, align = "center", maxLines = poolGrid.NAME_LINES, color = theme.fixed.white })
+    if r.hovered then self.hoveredId = def.id end
     if r.pressed then
       self.placingDraft = def
       self.placementLibraryOpen = false
