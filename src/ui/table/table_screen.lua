@@ -2054,10 +2054,15 @@ function T:drawPreview()
   if c then
     def = V.def(self, c)
     faceUp = (c.faceUp or self.hoveredForceFaceUp) and def ~= nil
-    if c.zone ~= "table" then
-      orientation = "portrait"
-    else
+    if c.zone == "table" then
       orientation = CR.shownOrientation(def, not faceUp, self.game.cardBacks)
+    elseif c.zone == "zone" then
+      -- Zones can be displayed turned (ZoneDefinition.orientation); the
+      -- pile box is drawn at that angle regardless of face-up state, so
+      -- the preview should match what's actually on screen.
+      orientation = self:zoneDefinition(c.zoneId).orientation
+    else
+      orientation = "portrait"
     end
   elseif self.libraryHoverDef then
     def = self.libraryHoverDef

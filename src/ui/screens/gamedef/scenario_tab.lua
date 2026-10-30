@@ -243,7 +243,7 @@ function T.drawScenarioZoneDetail(sub, zone, x, y, w, h)
   ui.text("Side", cx, yy + 4, { h = 40, valign = "middle", color = theme.c.onSurfaceVariant })
   zone.side = ui.segmented(k .. ":side", cx + 40, yy + 4, hw - 40, SIDE_OPTIONS, zone.side)
   zone.orientation = ui.dropdown(k .. ":orient", cx + hw + G, yy, hw, common.orientationOptions, zone.orientation,
-    { label = "Card Orientation" })
+    { label = "Zone Orientation" })
   yy = yy + common.FIELD_H + 8
 
   yy = yy + group("Behavior", cx, yy, cw)
