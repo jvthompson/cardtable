@@ -160,6 +160,10 @@ function M.gameScreen(sc, game, spectating)
     localGame = game,
     sc = sc,
     spectator = spectating,
+    -- The dedicated server is always the authority (no client runs its own
+    -- host_engine), so gate Load Scenario on the room's creator instead of
+    -- any notion of "the host".
+    isRoomOwner = not spectating and room and room.ownerId == sc.self.id or false,
     collectionMode = room and room.collectionMode,
     deckStore = deckStore.serverStore(sc),
     avatarKeys = function() return sc:avatarKeysByUserId() end,

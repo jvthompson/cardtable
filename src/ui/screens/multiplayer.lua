@@ -773,6 +773,10 @@ function ClientGame:handleMessage(m)
         spectator = self.opts.spectator,
         collectionMode = self.opts.collectionMode,
         deckStore = self.opts.deckStore,
+        -- Only set for dedicated-server games (see server/common.lua:gameScreen);
+        -- a peer-hosted client never has this and keeps Load Scenario hidden,
+        -- same as before.
+        canLoadScenario = self.opts.isRoomOwner,
       })
       self.session:addListener(function() self:publishPresence() end)
       self:publishPresence()
