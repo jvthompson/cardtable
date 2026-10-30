@@ -1074,9 +1074,16 @@ local function drawSidebar(T, side, x, y, h)
     ui.rect("fill", x, yy, SLOT_W, SLOT_H, 0, theme.fixed.black)
     if zone.kind == "widget" then
       local w = T.derived.widgetFor["__shared"] and T.derived.widgetFor["__shared"][zone.id]
-      if w and zone.widgetKind == "tokenBag" then
-        drawTokenBag(T, w, zone, x + SLOT_W / 2, yy + SLOT_H / 2, true)
-        addBagDropZone(T, zone.id, x + SLOT_W / 2 - 40, yy + SLOT_H / 2 - 40, 80, 80)
+      if w then
+        local cx, cy = x + SLOT_W / 2, yy + SLOT_H / 2
+        if zone.widgetKind == "tokenBag" then
+          drawTokenBag(T, w, zone, cx, cy, true)
+          addBagDropZone(T, zone.id, cx - 40, cy - 40, 80, 80)
+        else
+          counterFace(T, w, cx - 40, cy - 40, 80, 1)
+          V.addItem(T, { kind = "dockedCounter", widget = w, zone = zone, x = cx - 40, y = cy - 40, w = 80, h = 80,
+            interactable = not T.tabDown, tooltip = zone.name })
+        end
       end
     else
       local cards = T.derived.cardsByZoneId[zone.id] or {}
