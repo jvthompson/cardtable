@@ -40,6 +40,7 @@ local function resolveGameImagePaths(game, folderPath)
     zones = game.zones, tagGroups = game.tagGroups, folderPath = folderPath,
     tableColor = game.tableColor, playmatBorderColor = game.playmatBorderColor,
     hasScenarios = game.hasScenarios, scenarios = game.scenarios,
+    sameOrientationForAll = game.sameOrientationForAll,
   })
 end
 

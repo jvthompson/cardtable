@@ -237,7 +237,14 @@ function T:draw(x, y, w, h)
     "Scenarios are named setups -- shared zones, starting cards, and cards placed on the table -- that the host "
       .. "can load from the Game Menu during a session. Turn this on to edit them on the Scenarios tab.",
     cx, yy, cw, game.hasScenarios)
-  yy = yy + scenariosH + common.SECTION_GAP
+  yy = yy + scenariosH + common.GAP
+
+  local orientH
+  game.sameOrientationForAll, orientH = common.toggleRow("gs:sameorient", "Same Table Orientation For Everyone",
+    "Cooperative games: the shared table and any cards placed on it look the same for every player, regardless "
+      .. "of seat, instead of appearing mirrored/upside-down for players sitting \"across the table.\"",
+    cx, yy, cw, game.sameOrientationForAll)
+  yy = yy + orientH + common.SECTION_GAP
 
   -- Card backs.
   local hh, add = common.sectionHeader("gs:backs", "Card Backs", cx, yy, cw, {

@@ -440,7 +440,7 @@ function HostGame.new(opts)
     session = self.session,
     controller = controller.Host.new(self.session, self.engine),
     game = game,
-    isMirrored = seats.isFarMirrorSeat(seat, #players),
+    isMirrored = not game.sameOrientationForAll and seats.isFarMirrorSeat(seat, #players),
     localAvatarPath = app().profile.avatarPath,
     leaveButtonLabel = "End Game",
     leaveConfirmationMessage = "End the game for everyone? Every connected player will be disconnected -- you can start a new session any time.",
@@ -787,6 +787,7 @@ function ClientGame:handleMessage(m)
 end
 
 function ClientGame:isMirrored()
+  if self.game.sameOrientationForAll then return false end
   local players = self.session.state.players
   local n = #players
   if n < 2 then return true end

@@ -148,7 +148,7 @@ function T:isZoneSearched(zoneId, ownerId)
 end
 
 function T:cardFacesAwayFromMe(ownerId)
-  if ownerId == nil then return false end
+  if ownerId == nil or self.game.sameOrientationForAll then return false end
   local players = self.state.players
   local n = #players
   local ownerSeat, mySeat

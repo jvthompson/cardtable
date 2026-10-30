@@ -102,6 +102,7 @@ function R.mergeLocalImagePaths(remote, localGame)
     folderPath = localGame.folderPath,
     hasScenarios = remote.hasScenarios,
     scenarios = remote.scenarios,
+    sameOrientationForAll = remote.sameOrientationForAll,
   })
 end
 
