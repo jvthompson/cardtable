@@ -221,6 +221,74 @@ function C.collapseHeader(id, title, x, y, w, h, expanded, trailing)
   return r.clicked == true
 end
 
+-- Scans <folderPath>/tokens for image files (same filter table_screen.lua's
+-- T:loadTokenImages uses at the table), sorted by name. Each entry:
+-- { name, file, path } -- file is the bare name to store, path a resolved
+-- one for display.
+function C.tokenFolderImages(folderPath)
+  if not folderPath then return {} end
+  local dir = fs.join(folderPath, "tokens")
+  local list = {}
+  for _, e in ipairs(fs.list(dir) or {}) do
+    local ext = fs.extension(e.name)
+    if not e.isDir and (ext == ".png" or ext == ".jpg" or ext == ".jpeg" or ext == ".webp") then
+      list[#list + 1] = { name = fs.stripExtension(e.name), file = e.name, path = fs.join(dir, e.name) }
+    end
+  end
+  table.sort(list, function(a, b) return a.name:lower() < b.name:lower() end)
+  return list
+end
+
+-- A small thumbnail-grid popover to pick one bare file name out of
+-- <folderPath>/tokens, plus an "Add Image..." tile that copies a new file
+-- in via C.chooseImage. onResult(fileName) fires once, on pick or add
+-- (never on cancel).
+function C.chooseTokenImage(folderPath, onResult)
+  local images = C.tokenFolderImages(folderPath)
+  local TILE, GAP, COLS = 72, 8, 4
+  local GRID_H = 280
+  overlays.dialog({
+    title = "Choose Token Image", width = COLS * TILE + (COLS - 1) * GAP + 48,
+    content = function(d, x, y, w)
+      local addW = ui.buttonWidth("Add Image...", { icon = "add" })
+      if ui.button("Add Image...", x, y, addW, 40, { variant = "outlined", icon = "add", id = "ctok:add" }) then
+        C.chooseImage(fs.join(folderPath, "tokens"), false, function(name)
+          if name then
+            onResult(name)
+            d:close()
+          end
+        end)
+      end
+      local gy = y + 40 + 12
+      if #images == 0 then
+        ui.text("No images in this game's tokens folder yet.", x, gy,
+          { w = w, h = GRID_H, align = "center", valign = "middle", color = theme.c.onSurfaceVariant })
+        return 40 + 12 + GRID_H
+      end
+      local off = ui.beginScroll("ctok:grid", x, gy, w, GRID_H)
+      local rowH = TILE + 20 + GAP
+      local picked
+      for i, img in ipairs(images) do
+        local col, row = (i - 1) % COLS, math.floor((i - 1) / COLS)
+        local tx, ty = x + col * (TILE + GAP), gy - off + row * rowH
+        if ty + TILE + 20 > gy and ty < gy + GRID_H then
+          local r = ui.region("ctok:img:" .. i, tx, ty, TILE, TILE, { cursor = "hand" })
+          C.imagePreviewBox(img.path, tx, ty, TILE, TILE)
+          ui.text(img.name, tx, ty + TILE + 2, { size = 11, w = TILE, align = "center", maxLines = 1 })
+          if r.clicked then picked = img.file end
+        end
+      end
+      ui.endScroll("ctok:grid", math.ceil(#images / COLS) * rowH)
+      if picked then
+        onResult(picked)
+        d:close()
+      end
+      return 40 + 12 + GRID_H
+    end,
+    actions = { { label = "Cancel", variant = "text" } },
+  })
+end
+
 -- -, quantity, + and a remove button for a quantity row ending at right.
 -- Returns (newQuantity, removeClicked). opts: removeTooltip, disabled.
 function C.stepper(id, right, y, quantity, opts)

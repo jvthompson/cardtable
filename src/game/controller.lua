@@ -118,6 +118,11 @@ function Host:deleteWidget(id) self.session:deleteWidget(id) end
 function Host:setWidgetColors(id, bg, text) self.session:setWidgetColors(id, bg, text) end
 function Host:duplicateWidget(srcId, newId, x, y) self.session:duplicateWidget(srcId, newId, x, y) end
 function Host:attachWidgetToCard(id, cardId, x, y) self.session:attachWidgetToCard(id, cardId, x, y, self:acting()) end
+function Host:drawBagToken(id) self.session:drawBagToken(id, self:acting()) end
+function Host:returnBagToken(id, slotId) self.session:returnBagToken(id, slotId, self:acting()) end
+function Host:placeBagTokenOnTable(id, slotId, newId, x, y) self.session:placeBagTokenOnTable(id, slotId, newId, x, y, self:acting()) end
+function Host:resetBag(id) self.session:resetBag(id, self:acting()) end
+function Host:returnImageTokenToBag(bagId, tokenId) self.session:returnImageTokenToBag(bagId, tokenId, self:acting()) end
 function Host:generatePack(setId) self.session:generatePack(setId, self:acting()) end
 function Host:createCardFromLibrary(defId, x, y) self.session:createCardFromLibrary(defId, x, y, self:acting()) end
 
@@ -215,6 +220,19 @@ end
 
 function Client:attachWidgetToCard(id, cardId, x, y)
   self.send("requestAttachWidgetToCard", p("instanceId", id, "cardId", cardId, "x", x, "y", y))
+end
+
+function Client:drawBagToken(id) self.send("requestDrawBagToken", p("instanceId", id)) end
+function Client:returnBagToken(id, slotId) self.send("requestReturnBagToken", p("instanceId", id, "slotId", slotId)) end
+
+function Client:placeBagTokenOnTable(id, slotId, newId, x, y)
+  self.send("requestPlaceBagTokenOnTable", p("instanceId", id, "slotId", slotId, "newInstanceId", newId, "x", x, "y", y))
+end
+
+function Client:resetBag(id) self.send("requestResetBag", p("instanceId", id)) end
+
+function Client:returnImageTokenToBag(bagId, tokenId)
+  self.send("requestReturnImageTokenToBag", p("bagInstanceId", bagId, "tokenInstanceId", tokenId))
 end
 
 function Client:generatePack(setId) self.send("requestGeneratePack", p("setId", setId)) end

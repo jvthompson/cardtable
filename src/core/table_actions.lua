@@ -510,4 +510,116 @@ function A.duplicateWidget(state, sourceInstanceId, newInstanceId, x, y)
   }))
 end
 
+---------------------------------------------------------------------------
+-- Token bag (a kind="widget" zone's "tokenBag" widgetKind)
+---------------------------------------------------------------------------
+
+-- Appends every widget in newWidgets with sequential zIndex, one revision
+-- bump total (used when a scenario loads new widget-kind zones; mirrors
+-- A.dealNewCards).
+function A.addWidgets(state, newWidgets)
+  if #newWidgets == 0 then return state end
+  local baseZ = nextWidgetZIndex(state)
+  local widgets = util.shallowCopy(state.widgets)
+  for i, w in ipairs(newWidgets) do widgets[#widgets + 1] = copyWith(w, { zIndex = baseZ + i - 1 }) end
+  return bumped(state, { widgets = widgets })
+end
+
+-- Moves one occurrence of imagePath out of the bag's bagRemaining into
+-- bagRevealed under slotId.
+function A.revealBagToken(state, instanceId, imagePath, slotId)
+  local widgets = mapWidgets(state, function(w)
+    if w.instanceId ~= instanceId then return w end
+    local remaining = util.shallowCopy(w.bagRemaining)
+    for i, p in ipairs(remaining) do
+      if p == imagePath then
+        table.remove(remaining, i)
+        break
+      end
+    end
+    local revealed = util.shallowCopy(w.bagRevealed)
+    revealed[#revealed + 1] = models.RevealedToken.new(slotId, imagePath)
+    return copyWith(w, { bagRemaining = remaining, bagRevealed = revealed })
+  end)
+  return bumped(state, { widgets = widgets })
+end
+
+-- Removes slotId from bagRevealed; its image goes back into bagRemaining
+-- only when returnToBag (otherwise it's gone until the bag is reset).
+function A.resolveBagToken(state, instanceId, slotId, returnToBag)
+  local widgets = mapWidgets(state, function(w)
+    if w.instanceId ~= instanceId then return w end
+    local entry, revealed = nil, {}
+    for _, r in ipairs(w.bagRevealed) do
+      if r.slotId == slotId then entry = r else revealed[#revealed + 1] = r end
+    end
+    if not entry then return w end
+    local remaining = w.bagRemaining
+    if returnToBag then
+      remaining = util.shallowCopy(remaining)
+      remaining[#remaining + 1] = entry.imagePath
+    end
+    return copyWith(w, { bagRemaining = remaining, bagRevealed = revealed })
+  end)
+  return bumped(state, { widgets = widgets })
+end
+
+-- Removes slotId from the bag's bagRevealed and appends a brand-new free
+-- imageToken widget at (x, y) carrying that token's image. `size` (when
+-- given) becomes the new widget's sizeOverride, so it renders large (card
+-- sized) rather than shrinking to the default imageToken marker size.
+function A.placeBagTokenOnTable(state, instanceId, slotId, newInstanceId, x, y, ownerId, size)
+  local revealedEntry
+  for _, w in ipairs(state.widgets) do
+    if w.instanceId == instanceId then
+      for _, r in ipairs(w.bagRevealed) do
+        if r.slotId == slotId then revealedEntry = r end
+      end
+    end
+  end
+  if not revealedEntry then return state end
+  local widgets = mapWidgets(state, function(w)
+    if w.instanceId ~= instanceId then return w end
+    return copyWith(w, { bagRevealed = util.filter(w.bagRevealed, function(r) return r.slotId ~= slotId end) })
+  end)
+  widgets[#widgets + 1] = models.BoardWidgetInstance.new({
+    instanceId = newInstanceId, kind = "imageToken", x = x, y = y, zIndex = nextWidgetZIndex(state),
+    imagePath = revealedEntry.imagePath, ownerId = ownerId, sizeOverride = size,
+  })
+  return bumped(state, { widgets = widgets })
+end
+
+-- Restores the bag to a freshly-expanded pool and clears anything revealed
+-- (tokens already placed on the table as free imageToken widgets are left
+-- untouched -- they have no further relationship to the bag by then).
+function A.resetBag(state, instanceId, freshRemaining)
+  local widgets = mapWidgets(state, function(w)
+    if w.instanceId ~= instanceId then return w end
+    return copyWith(w, { bagRemaining = freshRemaining, bagRevealed = {} })
+  end)
+  return bumped(state, { widgets = widgets })
+end
+
+-- Deletes a free imageToken widget outright (dragged back onto a bag);
+-- when returnToBag, its image is pushed onto the target bag's
+-- bagRemaining instead of just vanishing. Not scoped to "this token came
+-- from this bag" -- any imageToken dropped on any bag is put away there.
+function A.returnImageTokenToBag(state, bagInstanceId, tokenInstanceId, returnToBag)
+  local token
+  for _, w in ipairs(state.widgets) do
+    if w.instanceId == tokenInstanceId then token = w end
+  end
+  if not token then return state end
+  local widgets = util.filter(state.widgets, function(w) return w.instanceId ~= tokenInstanceId end)
+  if returnToBag then
+    widgets = util.map(widgets, function(w)
+      if w.instanceId ~= bagInstanceId then return w end
+      local remaining = util.shallowCopy(w.bagRemaining)
+      remaining[#remaining + 1] = token.imagePath
+      return copyWith(w, { bagRemaining = remaining })
+    end)
+  end
+  return bumped(state, { widgets = widgets })
+end
+
 return A

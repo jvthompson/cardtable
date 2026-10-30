@@ -85,6 +85,32 @@ end
 -- Initial deal
 ---------------------------------------------------------------------------
 
+-- A kind="widget" zone's widgetKind names a ZoneWidgetKind value; the
+-- BoardWidgetInstance it docks is keyed by the (differently-named)
+-- BoardWidgetKind enum. Today these happen to be a 1:1 map.
+local ZONE_WIDGET_KIND_TO_BOARD_KIND = { counter = "simpleCounter", tokenBag = "tokenBag" }
+
+local function expandBagEntries(entries)
+  local out = {}
+  for _, e in ipairs(entries or {}) do
+    for _ = 1, e.quantity do out[#out + 1] = e.definitionId end
+  end
+  return out
+end
+
+-- The single BoardWidgetInstance a kind="widget" zone docks, for either an
+-- owned (ownerId = a player id) or shared (ownerId = nil) zone.
+local function buildDealtWidget(zone, ownerId, zIndex)
+  local boardKind = ZONE_WIDGET_KIND_TO_BOARD_KIND[zone.widgetKind] or "simpleCounter"
+  local f = { instanceId = uuid.v4(), kind = boardKind, x = 0.5, y = 0.5, zIndex = zIndex, ownerId = ownerId, zoneId = zone.id }
+  if boardKind == "tokenBag" then
+    f.imagePath, f.bagRemaining, f.bagRevealed = zone.bagImagePath, expandBagEntries(zone.bagEntries), {}
+  else
+    f.value, f.backgroundColor, f.textColor = zone.counterStartingValue, zone.counterStartingColor, zone.counterStartingTextColor
+  end
+  return models.BoardWidgetInstance.new(f)
+end
+
 -- opts: { game, players, localPlayerId, deckConfigsByPlayerId,
 --         sharedDeckConfigsByZoneId, isLocalPractice, now, rng }
 function Session.dealFromZones(opts)
@@ -142,17 +168,18 @@ function Session.dealFromZones(opts)
   for _, player in ipairs(opts.players) do
     for _, zone in ipairs(game.zones) do
       if not zone.shared and zone.kind == "widget" then
-        widgets[#widgets + 1] = models.BoardWidgetInstance.new({
-          instanceId = uuid.v4(), kind = "simpleCounter", x = 0.5, y = 0.5, zIndex = #widgets,
-          value = zone.counterStartingValue, backgroundColor = zone.counterStartingColor,
-          textColor = zone.counterStartingTextColor, ownerId = player.id, zoneId = zone.id,
-        })
+        widgets[#widgets + 1] = buildDealtWidget(zone, player.id, #widgets)
       end
+    end
+  end
+  for _, zone in ipairs(game.zones) do
+    if zone.shared and zone.kind == "widget" then
+      widgets[#widgets + 1] = buildDealtWidget(zone, nil, #widgets)
     end
   end
 
   for _, zone in ipairs(game.zones) do
-    if zone.shared then
+    if zone.shared and zone.kind == "card" then
       local entries
       if zone.standardDeck then
         entries = standardDeckEntries
@@ -495,21 +522,31 @@ function Session:loadScenario(scenarioId, actingPlayerId)
   loadedScenarioIds[#loadedScenarioIds + 1] = scenarioId
   self.state = util.copyWith(self.state, { loadedZones = loadedZones, loadedScenarioIds = loadedScenarioIds })
 
+  local newWidgets = {}
+  for _, zone in ipairs(newZones) do
+    if zone.kind == "widget" then
+      newWidgets[#newWidgets + 1] = buildDealtWidget(zone, nil, 0) -- scenario zones are always shared
+    end
+  end
+  self.state = A.addWidgets(self.state, newWidgets)
+
   local newCards = {}
   for _, zone in ipairs(newZones) do
-    local entries = zone.dealsBuiltDeck and models.Scenario.entriesFor(scenario, zone.deckType) or zone.entries
-    local ids = {}
-    for _, e in ipairs(entries) do
-      if self.definitionsById[e.definitionId] then
-        for _ = 1, e.quantity do ids[#ids + 1] = e.definitionId end
+    if zone.kind == "card" then
+      local entries = zone.dealsBuiltDeck and models.Scenario.entriesFor(scenario, zone.deckType) or zone.entries
+      local ids = {}
+      for _, e in ipairs(entries) do
+        if self.definitionsById[e.definitionId] then
+          for _ = 1, e.quantity do ids[#ids + 1] = e.definitionId end
+        end
       end
-    end
-    if zone.autoShuffle then util.shuffle(ids) end
-    for _, id in ipairs(ids) do
-      newCards[#newCards + 1] = models.CardInstance.new({
-        instanceId = uuid.v4(), definitionId = id, x = 0.5, y = 0.5, zIndex = 0, faceUp = zone.faceUp,
-        zone = "zone", zoneId = zone.id, ownerId = nil, unownable = self.definitionsById[id].unownable,
-      })
+      if zone.autoShuffle then util.shuffle(ids) end
+      for _, id in ipairs(ids) do
+        newCards[#newCards + 1] = models.CardInstance.new({
+          instanceId = uuid.v4(), definitionId = id, x = 0.5, y = 0.5, zIndex = 0, faceUp = zone.faceUp,
+          zone = "zone", zoneId = zone.id, ownerId = nil, unownable = self.definitionsById[id].unownable,
+        })
+      end
     end
   end
 
@@ -599,6 +636,60 @@ end
 
 function Session:duplicateWidget(sourceInstanceId, newInstanceId, x, y)
   self.state = A.duplicateWidget(self.state, sourceInstanceId, newInstanceId, x, y)
+  self:notify()
+end
+
+-- Roughly a card's height, so a token placed from a bag stays large and
+-- readable on the table instead of shrinking to the default imageToken
+-- marker size.
+local PLACED_TOKEN_SIZE = 100
+
+function Session:drawBagToken(instanceId, actingPlayerId, rng)
+  local widget = self:findWidget(instanceId)
+  if not widget or widget.kind ~= "tokenBag" or #widget.bagRemaining == 0 then return end
+  local pick = (rng or math.random)(#widget.bagRemaining)
+  local imagePath = widget.bagRemaining[pick]
+  self.state = A.revealBagToken(self.state, instanceId, imagePath, uuid.v4())
+  local label = widget.zoneId and ("the " .. self:zoneDefinition(widget.zoneId).name) or "the token bag"
+  self:log(actingPlayerId, "drew a token from " .. label .. ".")
+  self:notify()
+end
+
+function Session:returnBagToken(instanceId, slotId, actingPlayerId)
+  local widget = self:findWidget(instanceId)
+  if not widget then return end
+  local zone = widget.zoneId and self:zoneDefinition(widget.zoneId)
+  local returnable = not zone or zone.bagReturnable
+  self.state = A.resolveBagToken(self.state, instanceId, slotId, returnable)
+  self:log(actingPlayerId, returnable and "returned a token to the bag." or "discarded a token from the bag.")
+  self:notify()
+end
+
+function Session:placeBagTokenOnTable(instanceId, slotId, newInstanceId, x, y, actingPlayerId)
+  self.state = A.placeBagTokenOnTable(self.state, instanceId, slotId, newInstanceId, x, y, nil, PLACED_TOKEN_SIZE)
+  self:log(actingPlayerId, "placed a token from the bag onto the table.")
+  self:notify()
+end
+
+function Session:resetBag(instanceId, actingPlayerId)
+  local widget = self:findWidget(instanceId)
+  if not widget or widget.kind ~= "tokenBag" then return end
+  local zone = widget.zoneId and self:zoneDefinition(widget.zoneId)
+  self.state = A.resetBag(self.state, instanceId, expandBagEntries(zone and zone.bagEntries))
+  self:log(actingPlayerId, "reset the token bag.")
+  self:notify()
+end
+
+-- Dragging a free imageToken widget back onto any token bag puts it away
+-- there (returnable) or destroys it (not), regardless of whether it ever
+-- came from this particular bag -- see table_actions.A.returnImageTokenToBag.
+function Session:returnImageTokenToBag(bagInstanceId, tokenInstanceId, actingPlayerId)
+  local bag = self:findWidget(bagInstanceId)
+  if not bag then return end
+  local zone = bag.zoneId and self:zoneDefinition(bag.zoneId)
+  local returnable = not zone or zone.bagReturnable
+  self.state = A.returnImageTokenToBag(self.state, bagInstanceId, tokenInstanceId, returnable)
+  self:log(actingPlayerId, returnable and "put a token away in the bag." or "destroyed a token in the bag.")
   self:notify()
 end
 

@@ -349,6 +349,80 @@ return function(t)
     end)
   end)
 
+  t.describe("token bag", function()
+    local function bagState(remaining, revealed)
+      return H.state({ widgets = { H.widget({ id = "bag", kind = "tokenBag", imagePath = "bag.png",
+        bagRemaining = remaining or {}, bagRevealed = revealed or {} }) } })
+    end
+
+    t.it("addWidgets: sequential zIndex, single bump, no-op on empty", function()
+      local s = H.state({ widgets = { H.widget({ id = "w0", zIndex = 5 }) } })
+      local n = A.addWidgets(s, { H.widget({ id = "w1" }), H.widget({ id = "w2" }) })
+      t.eq(t.ids(n.widgets), { "w0", "w1", "w2" })
+      t.eq({ find(n.widgets, "w1").zIndex, find(n.widgets, "w2").zIndex }, { 6, 7 })
+      t.eq(n.revision, 1)
+      t.ok(A.addWidgets(s, {}) == s)
+    end)
+
+    t.it("revealBagToken removes exactly one match, appends to bagRevealed", function()
+      local s = bagState({ "a.png", "a.png", "b.png" })
+      local n = A.revealBagToken(s, "bag", "a.png", "slot1")
+      local bag = find(n.widgets, "bag")
+      t.eq(bag.bagRemaining, { "a.png", "b.png" })
+      t.eq(bag.bagRevealed, { { slotId = "slot1", imagePath = "a.png" } })
+      t.eq(n.revision, 1)
+      t.eq(s.revision, 0, "original state untouched")
+    end)
+
+    t.it("resolveBagToken: returnToBag restores it, false drops it, missing slot is a no-op", function()
+      local s = bagState({}, { { slotId = "s1", imagePath = "a.png" } })
+      local returned = A.resolveBagToken(s, "bag", "s1", true)
+      t.eq(find(returned.widgets, "bag").bagRemaining, { "a.png" })
+      t.eq(find(returned.widgets, "bag").bagRevealed, {})
+      local destroyed = A.resolveBagToken(s, "bag", "s1", false)
+      t.eq(find(destroyed.widgets, "bag").bagRemaining, {})
+      t.eq(find(destroyed.widgets, "bag").bagRevealed, {})
+      local missing = A.resolveBagToken(s, "bag", "nope", true)
+      t.eq(find(missing.widgets, "bag").bagRevealed, { { slotId = "s1", imagePath = "a.png" } })
+    end)
+
+    t.it("placeBagTokenOnTable removes the revealed slot, appends a sized imageToken", function()
+      local s = bagState({}, { { slotId = "s1", imagePath = "skull.png" } })
+      local n = A.placeBagTokenOnTable(s, "bag", "s1", "new1", 0.4, 0.6, nil, 100)
+      t.eq(find(n.widgets, "bag").bagRevealed, {})
+      local placed = find(n.widgets, "new1")
+      t.eq({ placed.kind, placed.imagePath, placed.x, placed.y, placed.sizeOverride, placed.ownerId },
+        { "imageToken", "skull.png", 0.4, 0.6, 100, nil })
+      t.ok(A.placeBagTokenOnTable(s, "bag", "nope", "x", 0, 0) == s)
+    end)
+
+    t.it("resetBag replaces bagRemaining wholesale, clears bagRevealed, leaves other widgets alone", function()
+      local s = H.state({ widgets = {
+        H.widget({ id = "bag", kind = "tokenBag", bagRemaining = { "a.png" }, bagRevealed = { { slotId = "s1", imagePath = "b.png" } } }),
+        H.widget({ id = "placed", kind = "imageToken", imagePath = "b.png" }),
+      } })
+      local n = A.resetBag(s, "bag", { "a.png", "a.png", "b.png" })
+      local bag = find(n.widgets, "bag")
+      t.eq(bag.bagRemaining, { "a.png", "a.png", "b.png" })
+      t.eq(bag.bagRevealed, {})
+      t.eq(find(n.widgets, "placed"), find(s.widgets, "placed"), "a placed token is untouched by reset")
+    end)
+
+    t.it("returnImageTokenToBag: returnable adds its image back, non-returnable just deletes it", function()
+      local s = H.state({ widgets = {
+        H.widget({ id = "bag", kind = "tokenBag", bagRemaining = { "a.png" } }),
+        H.widget({ id = "tok", kind = "imageToken", imagePath = "zzz.png" }),
+      } })
+      local returned = A.returnImageTokenToBag(s, "bag", "tok", true)
+      t.isNil(find(returned.widgets, "tok"))
+      t.eq(find(returned.widgets, "bag").bagRemaining, { "a.png", "zzz.png" })
+      local destroyed = A.returnImageTokenToBag(s, "bag", "tok", false)
+      t.isNil(find(destroyed.widgets, "tok"))
+      t.eq(find(destroyed.widgets, "bag").bagRemaining, { "a.png" })
+      t.ok(A.returnImageTokenToBag(s, "bag", "nope", true) == s)
+    end)
+  end)
+
   t.describe("dealNewCards", function()
     t.it("appends with ascending z; empty list no-op", function()
       local s = pile()

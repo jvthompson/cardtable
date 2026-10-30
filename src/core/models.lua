@@ -64,10 +64,11 @@ end
 
 M.CardOrientation = { portrait = true, left = true, right = true }
 M.CardZone = { table = true, hand = true, zone = true }
-M.BoardWidgetKind = { simpleCounter = true, token = true, imageToken = true, arrow = true, packGenerator = true, deckBuilder = true }
+M.BoardWidgetKind = { simpleCounter = true, token = true, imageToken = true, arrow = true, packGenerator = true,
+  deckBuilder = true, tokenBag = true }
 M.SharedZoneSide = { left = true, right = true }
 M.ZoneKind = { card = true, widget = true }
-M.ZoneWidgetKind = { counter = true }
+M.ZoneWidgetKind = { counter = true, tokenBag = true }
 M.PlayerRole = { host = true, client = true }
 M.SearchTargetType = { zone = true, pile = true }
 
@@ -366,6 +367,9 @@ function ZoneDefinition.new(f)
     counterStartingValue = f.counterStartingValue or 0,
     counterStartingColor = f.counterStartingColor or M.defaultBoardWidgetBackgroundColor,
     counterStartingTextColor = f.counterStartingTextColor or M.defaultBoardWidgetTextColor,
+    bagImagePath = f.bagImagePath,
+    bagReturnable = default(f.bagReturnable, true),
+    bagEntries = f.bagEntries or {},
   }
 end
 
@@ -392,6 +396,9 @@ function ZoneDefinition.fromJson(t)
     counterStartingValue = t.counterStartingValue,
     counterStartingColor = t.counterStartingColor,
     counterStartingTextColor = t.counterStartingTextColor,
+    bagImagePath = t.bagImagePath,
+    bagReturnable = default(t.bagReturnable, true),
+    bagEntries = mapJson(t.bagEntries, DeckEntry.fromJson),
   })
 end
 
@@ -417,7 +424,10 @@ function ZoneDefinition.toJson(z)
     "widgetKind", unlessDefault(z.widgetKind, "counter"),
     "counterStartingValue", unlessDefault(z.counterStartingValue, 0),
     "counterStartingColor", unlessDefault(z.counterStartingColor, M.defaultBoardWidgetBackgroundColor),
-    "counterStartingTextColor", unlessDefault(z.counterStartingTextColor, M.defaultBoardWidgetTextColor)
+    "counterStartingTextColor", unlessDefault(z.counterStartingTextColor, M.defaultBoardWidgetTextColor),
+    "bagImagePath", z.bagImagePath,
+    "bagReturnable", unlessDefault(z.bagReturnable, true),
+    "bagEntries", nonEmptyList(z.bagEntries, DeckEntry.toJson)
   )
 end
 
@@ -716,6 +726,21 @@ function CardInstance.toJson(c)
 end
 
 ---------------------------------------------------------------------------
+-- RevealedToken
+---------------------------------------------------------------------------
+
+local RevealedToken = {}
+M.RevealedToken = RevealedToken
+
+function RevealedToken.new(slotId, imagePath) return { slotId = slotId, imagePath = imagePath } end
+
+function RevealedToken.fromJson(t)
+  return RevealedToken.new(requireField(t, "slotId", "RevealedToken"), requireField(t, "imagePath", "RevealedToken"))
+end
+
+function RevealedToken.toJson(r) return obj("slotId", r.slotId, "imagePath", r.imagePath) end
+
+---------------------------------------------------------------------------
 -- BoardWidgetInstance
 ---------------------------------------------------------------------------
 
@@ -741,6 +766,9 @@ function BoardWidgetInstance.new(f)
     ownerId = f.ownerId,
     zoneId = f.zoneId,
     imagePath = f.imagePath,
+    sizeOverride = f.sizeOverride,
+    bagRemaining = f.bagRemaining or {},
+    bagRevealed = f.bagRevealed or {},
   }
 end
 
@@ -763,6 +791,9 @@ function BoardWidgetInstance.fromJson(t)
     ownerId = t.ownerId,
     zoneId = t.zoneId,
     imagePath = t.imagePath,
+    sizeOverride = t.sizeOverride,
+    bagRemaining = stringList(t.bagRemaining),
+    bagRevealed = mapJson(t.bagRevealed, RevealedToken.fromJson),
   })
 end
 
@@ -784,7 +815,10 @@ function BoardWidgetInstance.toJson(w)
     "creatorId", w.creatorId,
     "ownerId", w.ownerId,
     "zoneId", w.zoneId,
-    "imagePath", w.imagePath
+    "imagePath", w.imagePath,
+    "sizeOverride", w.sizeOverride,
+    "bagRemaining", nonEmptyList(w.bagRemaining),
+    "bagRevealed", nonEmptyList(w.bagRevealed, RevealedToken.toJson)
   )
 end
 

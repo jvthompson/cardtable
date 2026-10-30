@@ -18,6 +18,7 @@ local common = require("src.ui.screens.gamedef.common")
 local CR = require("src.ui.table.card_render")
 local color = require("src.core.color")
 local tableSettings = require("src.data.table_settings")
+local fs = require("src.data.fs")
 
 local keyOf = common.keyOf
 
@@ -37,6 +38,8 @@ end
 
 local ROW_H = 56
 local SIDE_OPTIONS = { { value = "left", label = "Left" }, { value = "right", label = "Right" } }
+local ZONE_KIND_OPTIONS = { { value = "card", label = "Card Zone" }, { value = "widget", label = "Widget Zone" } }
+local ZONE_WIDGET_KIND_OPTIONS = { { value = "counter", label = "Counter" }, { value = "tokenBag", label = "Token Bag" } }
 local VIEW_OPTIONS = {
   { value = "zones", label = "Zones" },
   { value = "placement", label = "Card Placement" },
@@ -167,6 +170,18 @@ function T:drawZonesView(scenario, x, y, w, h)
   end
 end
 
+local function scenarioZoneBadge(zone)
+  if zone.kind == "widget" then
+    if zone.widgetKind == "tokenBag" then
+      local total = 0
+      for _, e in ipairs(zone.bagEntries) do total = total + e.quantity end
+      return total .. " token" .. (total == 1 and "" or "s")
+    end
+    return "Counter"
+  end
+  return zone.dealsBuiltDeck and ("Deck: " .. zone.deckType) or (#zone.entries .. " entries")
+end
+
 function T.drawScenarioZoneList(sub, x, y, w, h)
   local c = theme.c
   local scenario = sub.scenario
@@ -194,11 +209,11 @@ function T.drawScenarioZoneList(sub, x, y, w, h)
     end
     ro:handle(i, rx, yy + (ROW_H - 40) / 2, yy, ROW_H)
     local fg = sel and c.onSecondaryContainer or c.onSurface
-    ui.icon("layers", rx + 42, yy + (ROW_H - 20) / 2, 20, sel and fg or c.onSurfaceVariant)
+    ui.icon(zone.kind == "card" and "layers" or "widgets", rx + 42, yy + (ROW_H - 20) / 2, 20, sel and fg or c.onSurfaceVariant)
     local tx = rx + 72
     ui.text(zone.name == "" and "(unnamed zone)" or zone.name, tx, yy + 9,
       { w = rx + rw - 8 - tx, ellipsis = true, weight = sel and "medium" or nil, color = fg })
-    local badge = zone.dealsBuiltDeck and ("Deck: " .. zone.deckType) or (#zone.entries .. " entries")
+    local badge = scenarioZoneBadge(zone)
     ui.text(badge, tx, yy + 30, { w = rx + rw - 8 - tx, ellipsis = true, size = 12, color = c.onSurfaceVariant })
     if r.clicked then
       sub.selected = zone
@@ -215,6 +230,52 @@ end
 -- zones_tab.lua's own `group` helper). Returns the height used.
 local function group(text, x, y, w)
   return 20 + common.groupLabel(text, x, y + 20, w) + 2
+end
+
+-- Mirrors zones_tab.lua's T:drawTokenBagFields, for a scenario-defined
+-- widget zone: the bag's own idle image, the returnable toggle, and its
+-- contents (token image + quantity per row).
+local function drawScenarioTokenBagFields(sub, zone, k, x, y, w)
+  local c = theme.c
+  local folderPath = sub.editor.folderPath
+  local yy = y
+  local THUMB = 56
+  local thumb = ui.region(k .. ":bagimg", x, yy, THUMB, THUMB, { cursor = "hand", tooltip = "Choose Bag Image..." })
+  common.imagePreviewBox(zone.bagImagePath and fs.join(folderPath, "tokens", zone.bagImagePath), x, yy, THUMB, THUMB)
+  if thumb.clicked then
+    common.chooseTokenImage(folderPath, function(file) zone.bagImagePath = file end)
+  end
+  ui.text(zone.bagImagePath or "(no bag image)", x + THUMB + 12, yy, { w = w - THUMB - 12, h = THUMB,
+    valign = "middle", ellipsis = true, color = zone.bagImagePath and c.onSurface or c.onSurfaceVariant })
+  yy = yy + THUMB + 12
+
+  local th
+  zone.bagReturnable, th = common.toggleRow(k .. ":returnable", "Returnable",
+    "A returned token goes back into the bag's contents; off, it's destroyed instead", x, yy, w, zone.bagReturnable)
+  yy = yy + th + 12
+
+  yy = yy + common.groupLabel("Contents", x, yy, w) + 4
+  local images = common.tokenFolderImages(folderPath)
+  local options = util.map(images, function(img) return { value = img.file, label = img.name } end)
+  local remove
+  for i, entry in ipairs(zone.bagEntries) do
+    local ek = k .. ":bagentry" .. i
+    local dw = w - 8 - common.stepperWidth
+    local picked = ui.dropdown(ek .. ":img", x, yy + 4, dw, options, entry.definitionId,
+      { h = 40, placeholder = "(choose image)", size = 14 })
+    if picked ~= entry.definitionId then zone.bagEntries[i] = models.DeckEntry.new(picked, entry.quantity) end
+    local q, removed = common.stepper(ek, x + w, yy + 4, entry.quantity, { removeTooltip = "Remove Entry" })
+    if q ~= entry.quantity then zone.bagEntries[i] = models.DeckEntry.new(zone.bagEntries[i].definitionId, q) end
+    if removed then remove = i end
+    yy = yy + 48
+  end
+  if remove then table.remove(zone.bagEntries, remove) end
+  if ui.button("Add Entry", x - 8, yy, nil, 40, { variant = "text", icon = "add", id = k .. ":addbagentry",
+    disabled = #images == 0 }) then
+    zone.bagEntries[#zone.bagEntries + 1] = models.DeckEntry.new(images[1].file, 1)
+  end
+  yy = yy + 40
+  return yy - y
 end
 
 function T.drawScenarioZoneDetail(sub, zone, x, y, w, h)
@@ -238,6 +299,20 @@ function T.drawScenarioZoneDetail(sub, zone, x, y, w, h)
   zone.name = ui.textField(k .. ":name", cx, yy, hw, zone.name, { label = "Zone Name" })
   zone.id = ui.textField(k .. ":id", cx + hw + G, yy, hw, zone.id, { label = "Zone ID" })
   yy = yy + common.FIELD_H + 20
+
+  zone.kind = ui.segmented(k .. ":kind", cx, yy, math.min(cw, 320), ZONE_KIND_OPTIONS, zone.kind)
+  yy = yy + 40 + 20
+
+  if zone.kind == "widget" then
+    zone.widgetKind = ui.dropdown(k .. ":wkind", cx, yy, hw, ZONE_WIDGET_KIND_OPTIONS, zone.widgetKind, { label = "Widget Type" })
+    yy = yy + common.FIELD_H + G
+    if zone.widgetKind == "tokenBag" then
+      yy = yy + drawScenarioTokenBagFields(sub, zone, k, cx, yy, cw)
+    end
+    yy = yy + common.PAD
+    ui.endScroll("scen:zdetail", yy + off - y)
+    return
+  end
 
   yy = yy + group("Display", cx, yy, cw)
   ui.text("Side", cx, yy + 4, { h = 40, valign = "middle", color = theme.c.onSurfaceVariant })

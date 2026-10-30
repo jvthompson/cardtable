@@ -208,6 +208,20 @@ function E:handleMessage(clientId, msg)
       if self:movableWidget(p.sourceInstanceId, clientId) then s:duplicateWidget(p.sourceInstanceId, p.newInstanceId, num(p.x), num(p.y)) end
     elseif t == "requestAttachWidgetToCard" then
       if self:movableWidget(p.instanceId, clientId) then s:attachWidgetToCard(p.instanceId, p.cardId, num(p.x), num(p.y), clientId) end
+    elseif t == "requestDrawBagToken" then
+      if self:allowedWidget(p.instanceId, clientId) then s:drawBagToken(p.instanceId, clientId) end
+    elseif t == "requestReturnBagToken" then
+      if self:allowedWidget(p.instanceId, clientId) then s:returnBagToken(p.instanceId, p.slotId, clientId) end
+    elseif t == "requestPlaceBagTokenOnTable" then
+      if self:allowedWidget(p.instanceId, clientId) then
+        s:placeBagTokenOnTable(p.instanceId, p.slotId, p.newInstanceId, num(p.x), num(p.y), clientId)
+      end
+    elseif t == "requestResetBag" then
+      if self:allowedWidget(p.instanceId, clientId) then s:resetBag(p.instanceId, clientId) end
+    elseif t == "requestReturnImageTokenToBag" then
+      if self:movableWidget(p.tokenInstanceId, clientId) and self:allowedWidget(p.bagInstanceId, clientId) then
+        s:returnImageTokenToBag(p.bagInstanceId, p.tokenInstanceId, clientId)
+      end
     elseif t == "requestGeneratePack" then
       s:generatePack(p.setId, clientId)
     elseif t == "requestCreateCardFromLibrary" then

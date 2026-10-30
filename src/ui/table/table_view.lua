@@ -29,6 +29,10 @@ V.counterSize = 80
 V.tokenSize = 25
 -- Default footprint for image tokens; tune this independently of V.tokenSize.
 V.imageTokenSize = 25
+-- A token placed out of a token bag keeps this footprint (sizeOverride on the
+-- new imageToken widget) instead of shrinking to V.imageTokenSize -- see
+-- Session.PLACED_TOKEN_SIZE, which the two are meant to agree with.
+V.placedTokenSize = 100
 
 local DECK_HEADER, DECK_FOOTER, DECK_SPACING, DECK_PAD = 24, 36, 8, 8
 
@@ -40,11 +44,19 @@ function V.deckWidgetSize(subZoneCount)
 end
 
 function V.widgetSize(T, kind)
-  if kind == "simpleCounter" or kind == "packGenerator" then return V.counterSize, V.counterSize end
+  if kind == "simpleCounter" or kind == "packGenerator" or kind == "tokenBag" then return V.counterSize, V.counterSize end
   if kind == "token" then return V.tokenSize, V.tokenSize end
   if kind == "imageToken" then return V.imageTokenSize, V.imageTokenSize end
   if kind == "deckBuilder" then return V.deckWidgetSize(#models.GameDefinition.deckBuildingZones(T.game)) end
   return 0, 0
+end
+
+-- Like V.widgetSize, but for an actual widget instance: honors its own
+-- sizeOverride (e.g. a token placed from a bag, kept large/card-sized)
+-- before falling back to the kind's default square size.
+function V.widgetInstanceSize(T, w)
+  if w.sizeOverride then return w.sizeOverride, w.sizeOverride end
+  return V.widgetSize(T, w.kind)
 end
 
 local function rgba(argb, a) return { color.toRgba(argb, a) } end
@@ -174,6 +186,14 @@ end
 local function addDropZone(T, zoneId, x, y, w, h)
   T.dropZones[#T.dropZones + 1] = { zoneId = zoneId, x = x, y = y, w = w, h = h }
 end
+
+-- A separate registry from addDropZone/dockedZoneIdAt (card drops): a free
+-- imageToken dropped here should be put away in the bag, not treated as a
+-- card returning to a card zone -- the two must never be confused.
+local function addBagDropZone(T, zoneId, x, y, w, h)
+  T.bagDropZones[#T.bagDropZones + 1] = { zoneId = zoneId, x = x, y = y, w = w, h = h }
+end
+V.addBagDropZone = addBagDropZone
 
 -- Runs fn with everything drawn rotated 180 degrees inside box (RotatedBox
 -- quarterTurns: 2); items registered meanwhile get mirrored hit tests.
@@ -508,6 +528,56 @@ local function tokenFace(T, w, cx, cy, size, alpha)
 end
 V.tokenFace = tokenFace
 
+local BAG_SIZE, BAG_GAP = V.counterSize, 12
+
+-- Draws a docked Token Bag: the idle bag square at (cx, cy), plus a row of
+-- revealed-but-not-yet-placed tokens sliding away from it -- toward the
+-- table (not off-screen) based on zone.side: a left-edge zone pushes right,
+-- a right-edge one pushes left. Registers the idle square and each
+-- revealed token as items (click/drag) only when interactable.
+local function drawTokenBag(T, w, zone, cx, cy, interactable)
+  local function drawTokenImage(imagePath, ix, iy)
+    local path = imagePath and T.game.folderPath and fs.join(T.game.folderPath, "tokens", imagePath)
+    local img = path and imageCache.get(path)
+    if img then
+      local iw, ih = img:getDimensions()
+      local s = math.min(BAG_SIZE / iw, BAG_SIZE / ih)
+      love.graphics.setColor(1, 1, 1, 1)
+      love.graphics.draw(img, ix - iw * s / 2, iy - ih * s / 2, 0, s, s)
+      return true
+    end
+    return false
+  end
+
+  ui.rect("fill", cx - BAG_SIZE / 2, cy - BAG_SIZE / 2, BAG_SIZE, BAG_SIZE, 8, { 0, 0, 0, 0.38 })
+  if not drawTokenImage(w.imagePath, cx, cy) then
+    love.graphics.setColor(1, 1, 1, 0.3)
+    love.graphics.rectangle("line", cx - BAG_SIZE / 2 + 4, cy - BAG_SIZE / 2 + 4, BAG_SIZE - 8, BAG_SIZE - 8, 6, 6)
+  end
+  if #w.bagRemaining > 0 then
+    CR.drawCountBadge(cx + BAG_SIZE / 2 - 12, cy - BAG_SIZE / 2 + 12, #w.bagRemaining, 1)
+  end
+  if interactable then
+    V.addItem(T, { kind = "tokenBagIdle", widget = w, zone = zone, interactable = true,
+      x = cx - BAG_SIZE / 2, y = cy - BAG_SIZE / 2, w = BAG_SIZE, h = BAG_SIZE, tooltip = zone.name })
+  end
+
+  local dir = zone.side == "right" and -1 or 1
+  for i, entry in ipairs(w.bagRevealed) do
+    local off = V.animatedTurns(T, "bagslot:" .. entry.slotId, dir * i * (BAG_SIZE + BAG_GAP))
+    local rx, ry = cx + off, cy
+    if not drawTokenImage(entry.imagePath, rx, ry) then
+      love.graphics.setColor(1, 1, 1, 0.3)
+      love.graphics.circle("line", rx, ry, BAG_SIZE / 2)
+    end
+    if interactable then
+      V.addItem(T, { kind = "revealedBagToken", widget = w, slotId = entry.slotId, imagePath = entry.imagePath,
+        cx = rx, cy = ry, circle = BAG_SIZE / 2, interactable = true, tooltip = "Click to return, drag to place" })
+    end
+  end
+end
+V.drawTokenBag = drawTokenBag
+
 local function deckWidgetFace(T, w, x, y, ww, wh, s, alpha)
   local D = T.derived
   local acting = T.session:actingPlayerId()
@@ -585,7 +655,7 @@ local function drawTableWidgets(T)
   -- Flutter draws them in list order too).
   for _, w in ipairs(T.state.widgets) do
     if w.kind ~= "arrow" and w.zoneId == nil then
-      local ww, wh = V.widgetSize(T, w.kind)
+      local ww, wh = V.widgetInstanceSize(T, w)
       local px, py = V.toScreen(T, w.x, w.y)
       local s = T.zoom
       local x, y = px - ww * s / 2, py - wh * s / 2
@@ -855,9 +925,15 @@ local function drawZoneSlot(T, player, zone, isLocal, x, y, rotate)
     if zone.kind == "widget" then
       local w = T.derived.widgetFor[player.id] and T.derived.widgetFor[player.id][zone.id]
       if w then
-        counterFace(w, cx - 40, cy - 40, 80, 1)
-        V.addItem(T, { kind = "dockedCounter", widget = w, zone = zone, x = cx - 40, y = cy - 40, w = 80, h = 80,
-          interactable = isLocal and not T.tabDown, tooltip = zone.name })
+        local interactable = isLocal and not T.tabDown
+        if zone.widgetKind == "tokenBag" then
+          drawTokenBag(T, w, zone, cx, cy, interactable)
+          if isLocal then addBagDropZone(T, zone.id, cx - 40, cy - 40, 80, 80) end
+        else
+          counterFace(w, cx - 40, cy - 40, 80, 1)
+          V.addItem(T, { kind = "dockedCounter", widget = w, zone = zone, x = cx - 40, y = cy - 40, w = 80, h = 80,
+            interactable = interactable, tooltip = zone.name })
+        end
       end
       return
     end
@@ -965,21 +1041,29 @@ local function drawSidebar(T, side, x, y, h)
   local total = #zones * SLOT_H + (#zones - 1) * 12
   local yy = y + math.max(12, (h - total) / 2)
   for _, zone in ipairs(zones) do
-    local cards = T.derived.cardsByZoneId[zone.id] or {}
-    -- Shared zone cards are unowned; only those count as the shared pile.
-    local top = #cards > 0 and stacks.topOf(cards) or nil
     ui.rect("fill", x, yy, SLOT_W, SLOT_H, 0, theme.fixed.black)
-    local key = "shared:" .. zone.id
-    drawPileBox(T, { cx = x + SLOT_W / 2, cy = yy + SLOT_H / 2, count = #cards, def = top and V.def(T, top),
-      faceUp = top and top.faceUp, alpha = top and V.ghostAlpha(T, top.instanceId) or 1, wiggleKey = key,
-      angle = CR.orientationTurns(zone.orientation) * 2 * math.pi,
-      searched = T:isZoneSearched(zone.id, nil),
-      shuffle = (#cards > 0 and zone.shuffleable) and { key = key, onClick = function() T:shuffleZone(zone.id, key) end } or nil })
-    addDropZone(T, zone.id, x, yy, SLOT_W, SLOT_H)
-    table.insert(T.items, #T.items - ((#cards > 0 and zone.shuffleable) and 1 or 0) + 1, {
-      kind = "zone", zoneId = zone.id, zone = zone, top = top, cards = cards, hoverId = top and top.instanceId,
-      x = x, y = yy, w = SLOT_W, h = SLOT_H, tooltip = zone.name, interactable = true, shared = true,
-    })
+    if zone.kind == "widget" then
+      local w = T.derived.widgetFor["__shared"] and T.derived.widgetFor["__shared"][zone.id]
+      if w and zone.widgetKind == "tokenBag" then
+        drawTokenBag(T, w, zone, x + SLOT_W / 2, yy + SLOT_H / 2, true)
+        addBagDropZone(T, zone.id, x + SLOT_W / 2 - 40, yy + SLOT_H / 2 - 40, 80, 80)
+      end
+    else
+      local cards = T.derived.cardsByZoneId[zone.id] or {}
+      -- Shared zone cards are unowned; only those count as the shared pile.
+      local top = #cards > 0 and stacks.topOf(cards) or nil
+      local key = "shared:" .. zone.id
+      drawPileBox(T, { cx = x + SLOT_W / 2, cy = yy + SLOT_H / 2, count = #cards, def = top and V.def(T, top),
+        faceUp = top and top.faceUp, alpha = top and V.ghostAlpha(T, top.instanceId) or 1, wiggleKey = key,
+        angle = CR.orientationTurns(zone.orientation) * 2 * math.pi,
+        searched = T:isZoneSearched(zone.id, nil),
+        shuffle = (#cards > 0 and zone.shuffleable) and { key = key, onClick = function() T:shuffleZone(zone.id, key) end } or nil })
+      addDropZone(T, zone.id, x, yy, SLOT_W, SLOT_H)
+      table.insert(T.items, #T.items - ((#cards > 0 and zone.shuffleable) and 1 or 0) + 1, {
+        kind = "zone", zoneId = zone.id, zone = zone, top = top, cards = cards, hoverId = top and top.instanceId,
+        x = x, y = yy, w = SLOT_W, h = SLOT_H, tooltip = zone.name, interactable = true, shared = true,
+      })
+    end
     yy = yy + SLOT_H + 12
   end
 end
@@ -1009,7 +1093,7 @@ function V.layout(T, x, y, w, h)
 end
 
 function V.draw(T, x, y, w, h)
-  T.items, T.dropZones, T.handRect, T.handCardCenters = {}, {}, nil, {}
+  T.items, T.dropZones, T.bagDropZones, T.handRect, T.handCardCenters = {}, {}, {}, nil, {}
   V.layout(T, x, y, w, h)
   ui.rect("fill", x, y, w, h, 0, T:feltColor())
   V.drawTable(T)

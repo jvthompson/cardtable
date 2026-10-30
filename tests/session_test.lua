@@ -67,6 +67,33 @@ return function(t)
       local w = s.state.widgets[2]
       t.eq({ w.kind, w.value, w.backgroundColor, w.ownerId, w.zoneId, w.zIndex }, { "simpleCounter", 20, 0xFFD32F2F, "p2", "life", 1 })
     end)
+    t.it("owned token bag zone deals one widget per player, contents expanded from bagEntries", function()
+      local g = game({ zones = {
+        zone({ id = "bag", name = "Bag", kind = "widget", widgetKind = "tokenBag", bagImagePath = "bag.png",
+          bagEntries = { models.DeckEntry.new("plus1.png", 2), models.DeckEntry.new("skull.png", 1) } }),
+      } })
+      local s = Session.dealFromZones({ game = g, players = { p1, p2 }, localPlayerId = "p1", now = now })
+      t.eq(#s.state.widgets, 2)
+      local w1 = util.find(s.state.widgets, function(w) return w.ownerId == "p1" end)
+      t.eq(w1.kind, "tokenBag")
+      t.eq(w1.imagePath, "bag.png")
+      t.eq(w1.bagRevealed, {})
+      local sorted = util.map(w1.bagRemaining, function(x) return x end)
+      table.sort(sorted)
+      t.eq(sorted, { "plus1.png", "plus1.png", "skull.png" })
+    end)
+    t.it("shared token bag zone deals exactly one unowned widget, and no stray cards", function()
+      local g = game({ zones = {
+        zone({ id = "bag", name = "Bag", shared = true, kind = "widget", widgetKind = "tokenBag",
+          bagEntries = { models.DeckEntry.new("plus1.png", 1) } }),
+      } })
+      local s = Session.dealFromZones({ game = g, players = { p1, p2 }, localPlayerId = "p1", now = now })
+      t.eq(#s.state.widgets, 1)
+      t.isNil(s.state.widgets[1].ownerId)
+      t.eq(s.state.widgets[1].kind, "tokenBag")
+      t.eq(s.state.widgets[1].zoneId, "bag")
+      t.eq(#s.state.cards, 0, "a shared widget zone must never fall back to dealing the full card deck")
+    end)
     t.it("shared zones: discard empty, default full deck, standard 52, deckName, unownable", function()
       local g = game({ cards = { H.cardDef("a", {}, { unownable = true }), H.cardDef("b") }, zones = {
         zone({ id = "discard", name = "Discard", shared = true, isDiscardPile = true }),
@@ -322,6 +349,104 @@ return function(t)
       t.eq(#drawn, 1)
       t.eq(drawn[1].definitionId, "a")
     end)
+
+    t.it("a scenario-defined widget zone deals one unowned widget (not just card zones)", function()
+      local g = game({
+        hasScenarios = true,
+        scenarios = { models.Scenario.new({ id = "scen2", name = "Bag Scenario", zones = {
+          zone({ id = "bag", name = "Bag", shared = true, kind = "widget", widgetKind = "tokenBag",
+            bagImagePath = "bag.png", bagEntries = { models.DeckEntry.new("plus1.png", 2) } }),
+        } }) },
+      })
+      local s = Session.new({ game = g, localPlayerId = "p1", now = now, initialState = H.state({ players = { p1 } }) })
+      s:loadScenario("scen2", "p1")
+      t.eq(#s.state.widgets, 1)
+      local w = s.state.widgets[1]
+      t.isNil(w.ownerId)
+      t.eq({ w.kind, w.zoneId, w.imagePath }, { "tokenBag", "bag", "bag.png" })
+      t.eq(w.bagRemaining, { "plus1.png", "plus1.png" })
+    end)
+  end)
+
+  t.describe("token bag", function()
+    local function bagGame()
+      return game({ zones = {
+        zone({ id = "bag", name = "Bag", shared = true, kind = "widget", widgetKind = "tokenBag",
+          bagEntries = { models.DeckEntry.new("plus1.png", 2), models.DeckEntry.new("skull.png", 1) } }),
+      } })
+    end
+    local function bagSession()
+      return Session.dealFromZones({ game = bagGame(), players = { p1, p2 }, localPlayerId = "p1", now = now })
+    end
+    local function bagWidget(s) return util.find(s.state.widgets, function(w) return w.kind == "tokenBag" end) end
+
+    t.it("drawBagToken reveals one token (deterministic via rng), no-op when empty", function()
+      local s = bagSession()
+      local bag = bagWidget(s)
+      s:drawBagToken(bag.instanceId, "p1", function() return 1 end)
+      local reveal = bagWidget(s)
+      t.eq(#reveal.bagRemaining, 2)
+      t.eq(#reveal.bagRevealed, 1)
+      t.eq(lastLog(s), "Alice drew a token from the Bag.")
+      local emptyBag = Session.new({ game = game({ zones = {} }), localPlayerId = "p1", now = now,
+        initialState = H.state({ players = { p1 }, widgets = { H.widget({ id = "b", kind = "tokenBag" }) } }) })
+      emptyBag:drawBagToken("b", "p1")
+      t.eq(emptyBag.state.revision, 0)
+    end)
+
+    t.it("returnBagToken honors the zone's bagReturnable toggle", function()
+      local s = bagSession()
+      local bag = bagWidget(s)
+      s:drawBagToken(bag.instanceId, "p1", function() return 1 end)
+      local slotId = bagWidget(s).bagRevealed[1].slotId
+      s:returnBagToken(bag.instanceId, slotId, "p1")
+      t.eq(#bagWidget(s).bagRemaining, 3)
+      t.eq(lastLog(s), "Alice returned a token to the bag.")
+
+      local g2 = game({ zones = { zone({ id = "bag", name = "Bag", shared = true, kind = "widget",
+        widgetKind = "tokenBag", bagReturnable = false, bagEntries = { models.DeckEntry.new("x.png", 1) } }) } })
+      local s2 = Session.dealFromZones({ game = g2, players = { p1 }, localPlayerId = "p1", now = now })
+      local bag2 = bagWidget(s2)
+      s2:drawBagToken(bag2.instanceId, "p1", function() return 1 end)
+      local slot2 = bagWidget(s2).bagRevealed[1].slotId
+      s2:returnBagToken(bag2.instanceId, slot2, "p1")
+      t.eq(#bagWidget(s2).bagRemaining, 0)
+      t.eq(lastLog(s2), "Alice discarded a token from the bag.")
+    end)
+
+    t.it("placeBagTokenOnTable creates a large unowned imageToken and clears the reveal", function()
+      local s = bagSession()
+      local bag = bagWidget(s)
+      s:drawBagToken(bag.instanceId, "p1", function() return 1 end)
+      local slotId = bagWidget(s).bagRevealed[1].slotId
+      s:placeBagTokenOnTable(bag.instanceId, slotId, "placed1", 0.3, 0.4, "p1")
+      t.eq(#bagWidget(s).bagRevealed, 0)
+      local placed = util.find(s.state.widgets, function(w) return w.instanceId == "placed1" end)
+      t.eq({ placed.kind, placed.x, placed.y, placed.sizeOverride, placed.ownerId }, { "imageToken", 0.3, 0.4, 100, nil })
+      t.eq(lastLog(s), "Alice placed a token from the bag onto the table.")
+    end)
+
+    t.it("resetBag restores full contents and clears revealed", function()
+      local s = bagSession()
+      local bag = bagWidget(s)
+      s:drawBagToken(bag.instanceId, "p1", function() return 1 end)
+      s:resetBag(bag.instanceId, "p1")
+      local reset = bagWidget(s)
+      t.eq(#reset.bagRemaining, 3)
+      t.eq(#reset.bagRevealed, 0)
+      t.eq(lastLog(s), "Alice reset the token bag.")
+    end)
+
+    t.it("returnImageTokenToBag works on any imageToken, not just ones drawn from that bag", function()
+      local s = bagSession()
+      local bag = bagWidget(s)
+      s.state = util.copyWith(s.state, { widgets = util.concat(s.state.widgets,
+        { H.widget({ id = "loose", kind = "imageToken", imagePath = "unrelated.png" }) }) })
+      s:returnImageTokenToBag(bag.instanceId, "loose", "p1")
+      t.isNil(util.find(s.state.widgets, function(w) return w.instanceId == "loose" end))
+      t.ok(util.contains(bagWidget(s).bagRemaining, "unrelated.png"))
+      t.eq(lastLog(s), "Alice put a token away in the bag.")
+    end)
   end)
 
   t.describe("stacking", function()
@@ -422,12 +547,31 @@ return function(t)
       c:returnToZone("i", "z")
       c:stopSearch()
       c:loadScenario("scen1")
+      c:drawBagToken("bag1")
+      c:returnBagToken("bag1", "slot1")
+      c:placeBagTokenOnTable("bag1", "slot1", "new1", 0.4, 0.5)
+      c:resetBag("bag1")
+      c:returnImageTokenToBag("bag1", "tok1")
       t.eq(sent[1], { "requestMove", '{"instanceId":"i","x":0.5,"y":0.25}' })
       t.eq(sent[2], { "requestGiveCard", '{"instanceId":"i","newOwnerId":null}' })
       t.eq(sent[3], { "requestMoveGroup", '{"primaryInstanceId":"p","passengerRootInstanceIds":["a","b"],"x":1,"y":0}' })
       t.eq(sent[4], { "requestReturnToZone", '{"instanceId":"i","zoneId":"z","toBottom":false}' })
       t.eq(sent[5], { "requestStopSearch", "{}" })
       t.eq(sent[6], { "requestLoadScenario", '{"scenarioId":"scen1"}' })
+      t.eq(sent[7], { "requestDrawBagToken", '{"instanceId":"bag1"}' })
+      t.eq(sent[8], { "requestReturnBagToken", '{"instanceId":"bag1","slotId":"slot1"}' })
+      t.eq(sent[9], { "requestPlaceBagTokenOnTable",
+        '{"instanceId":"bag1","slotId":"slot1","newInstanceId":"new1","x":0.4,"y":0.5}' })
+      t.eq(sent[10], { "requestResetBag", '{"instanceId":"bag1"}' })
+      t.eq(sent[11], { "requestReturnImageTokenToBag", '{"bagInstanceId":"bag1","tokenInstanceId":"tok1"}' })
+    end)
+    t.it("host controller delegates bag actions straight to the session", function()
+      local s = Session.new({ game = g, localPlayerId = "p1", now = now, initialState = H.state({ players = { p1 },
+        widgets = { H.widget({ id = "bag", kind = "tokenBag", bagRemaining = { "a.png" } }) } }) })
+      local c = controller.Host.new(s)
+      c:drawBagToken("bag")
+      t.eq(#s:findWidget("bag").bagRevealed, 1)
+      t.eq(lastLog(s), "Alice drew a token from the token bag.")
     end)
     t.it("host controller loads a scenario by delegating straight to the session", function()
       local g2 = game({ hasScenarios = true, scenarios = {

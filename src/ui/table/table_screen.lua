@@ -53,7 +53,7 @@ function T.new(opts)
   self.forceLightTheme = true
   self.zoom, self.camX, self.camY = 1, 0, 0
   self.rotAnim, self.wiggle = {}, {}
-  self.items, self.prevItems, self.dropZones = {}, {}, {}
+  self.items, self.prevItems, self.dropZones, self.bagDropZones = {}, {}, {}, {}
   self.handCardCenters = {}
   self.bordersHidden = false
   self.colorTintEnabled = true
@@ -111,9 +111,10 @@ function T:derive()
   end
   D.localHand = require("src.core.table_actions").sortedByZ(hand)
   for _, w in ipairs(state.widgets) do
-    if w.zoneId and w.ownerId then
-      D.widgetFor[w.ownerId] = D.widgetFor[w.ownerId] or {}
-      D.widgetFor[w.ownerId][w.zoneId] = w
+    if w.zoneId then
+      local key = w.ownerId or "__shared"
+      D.widgetFor[key] = D.widgetFor[key] or {}
+      D.widgetFor[key][w.zoneId] = w
     end
   end
   local groups, order = stacks.groupByStack(tableCards)
@@ -334,7 +335,7 @@ function T:moveItemsBy(rootIds, tokenIds, dwx, dwy)
   for _, id in ipairs(tokenIds) do
     local w = models.TableState.widgetById(self.state, id)
     if w then
-      local ww, wh = V.widgetSize(self, w.kind)
+      local ww, wh = V.widgetInstanceSize(self, w)
       local wx, wy = V.canonicalToWorld(self, w.x, w.y)
       C:moveWidget(id, V.worldToCanonical(self, selection.clampWorldCenter(wx + dwx, wy + dwy, ww / 2, wh / 2)))
     end
@@ -713,6 +714,15 @@ function T:dockedZoneIdAt(x, y)
   return nil
 end
 
+-- Separate from dockedZoneIdAt: only Token Bag squares register here, so a
+-- dragged card is never mistaken for a token being put away in a bag.
+function T:bagZoneIdAt(x, y)
+  for _, z in ipairs(self.bagDropZones) do
+    if inRect(z, x, y) then return z.zoneId end
+  end
+  return nil
+end
+
 function T:handDropIndex(otherIds, x)
   local centers = {}
   for _, c in ipairs(self.handCardCenters) do centers[c.id] = c.cx end
@@ -910,7 +920,24 @@ function T:handleWidgetDrop(widgetId, kind, cx, cy)
   self.controller:moveWidget(widgetId, fx, fy)
 end
 
+-- The bag widget docked to zoneId, for the owner this drop would count as
+-- (the acting player for an owned zone, anyone for a shared one) -- or nil.
+function T:bagWidgetForDrop(zoneId)
+  local zone = self:zoneById(zoneId)
+  if not zone or zone.kind ~= "widget" or zone.widgetKind ~= "tokenBag" then return nil end
+  local key = zone.shared and "__shared" or self.session:actingPlayerId()
+  return self.derived.widgetFor[key] and self.derived.widgetFor[key][zoneId]
+end
+
 function T:handleTokenDrop(widgetId, kind, cx, cy)
+  if kind == "imageToken" then
+    local zoneId = self:bagZoneIdAt(cx, cy)
+    local bag = zoneId and self:bagWidgetForDrop(zoneId)
+    if bag then
+      self.controller:returnImageTokenToBag(bag.instanceId, widgetId)
+      return
+    end
+  end
   local ctrl = love.keyboard.isDown("lctrl", "rctrl")
   local wx, wy = V.screenToWorld(self, cx, cy)
   local target = self:findStackTarget(widgetId, wx, wy)
@@ -943,6 +970,15 @@ function T:handleImageTokenDrop(imageFile, cx, cy)
   local ww, wh = V.widgetSize(self, "imageToken")
   local fx, fy = V.screenToCanonicalClamped(self, cx, cy, ww / 2, wh / 2)
   self.controller:createWidget(uuid.v4(), "imageToken", fx, fy, imageFile)
+end
+
+-- A short press (not a drag) returns the token to the bag instead; dropped
+-- off-table it's left alone -- a tiny accidental drag must never destroy a
+-- non-returnable token.
+function T:handleRevealedBagTokenDrop(bagInstanceId, slotId, cx, cy)
+  if not self:isOverTable(cx, cy) then return end
+  local fx, fy = V.screenToCanonicalClamped(self, cx, cy, V.placedTokenSize / 2, V.placedTokenSize / 2)
+  self.controller:placeBagTokenOnTable(bagInstanceId, slotId, uuid.v4(), fx, fy)
 end
 
 function T:handleNewTokenDrop(cx, cy)
@@ -1016,6 +1052,7 @@ function T:startDrag()
     return
   end
   if src.kind == "widget" or src.kind == "token" then d.widgetId = src.widget.instanceId end
+  if src.kind == "revealedBagToken" then d.widgetId, d.slotId = src.widget.instanceId, src.slotId end
   self.drag = d
 end
 
@@ -1066,6 +1103,8 @@ function T:endDrag()
     self:handleImageTokenDrop(src.imageFile, cx, cy)
   elseif d.kind == "newToken" then
     self:handleNewTokenDrop(cx, cy)
+  elseif d.kind == "revealedBagToken" then
+    self:handleRevealedBagTokenDrop(src.widget.instanceId, src.slotId, cx, cy)
   elseif d.kind == "selection" then
     self:handleSelectionDrop(d, cx, cy)
   end
@@ -1128,11 +1167,13 @@ function T:drawDragFeedback()
     self:drawWidgetFace({ kind = "imageToken", imagePath = d.src.imageFile }, cx, cy, s)
   elseif d.kind == "newToken" then
     self:drawWidgetFace(COLOR_TOKEN_WIDGET, cx, cy, s)
+  elseif d.kind == "revealedBagToken" then
+    self:drawWidgetFace({ kind = "imageToken", imagePath = d.src.imagePath, sizeOverride = V.placedTokenSize }, cx, cy, s)
   end
 end
 
 function T:drawWidgetFace(w, cx, cy, s)
-  local ww, wh = V.widgetSize(self, w.kind)
+  local ww, wh = V.widgetInstanceSize(self, w)
   if w.kind == "simpleCounter" then
     V.counterFace(w, cx - ww * s / 2, cy - wh * s / 2, ww * s, 1)
   elseif w.kind == "token" or w.kind == "imageToken" then
@@ -1355,6 +1396,13 @@ function T:openItemMenu(item, mx, my)
   elseif (k == "deckBody" or k == "deckHeader") and item.widget.ownerId == self.session:actingPlayerId() and not self.tabDown then
     overlays.menu(mx, my, { { label = "Delete", onSelect = function() C:deleteWidget(item.widget.instanceId) end } })
     return true
+  elseif k == "tokenBagIdle" and item.interactable then
+    overlays.menu(mx, my, { { label = "Reset Bag", onSelect = function() C:resetBag(item.widget.instanceId) end } })
+    return true
+  elseif k == "revealedBagToken" and item.interactable then
+    overlays.menu(mx, my, { { label = "Return to Bag",
+      onSelect = function() C:returnBagToken(item.widget.instanceId, item.slotId) end } })
+    return true
   end
   return false
 end
@@ -1484,7 +1532,7 @@ end
 ---------------------------------------------------------------------------
 
 local DRAGGABLE = { tableCard = true, pile = true, handCard = true, zone = true, counter = true, token = true,
-  packGenerator = true, deckHeader = true }
+  packGenerator = true, deckHeader = true, revealedBagToken = true }
 local TABLE_KINDS = { table = true, tableCard = true, pile = true, counter = true, token = true, packGenerator = true,
   deckBody = true, deckHeader = true, deckSave = true, shuffle = true }
 
@@ -1521,6 +1569,9 @@ function T:sourceFor(item)
   elseif k == "deckHeader" then
     local wx, wy = V.toScreen(self, item.widget.x, item.widget.y)
     return { kind = "widget", widget = item.widget, cx = wx, cy = wy, scale = self.zoom }
+  elseif k == "revealedBagToken" and item.interactable then
+    return { kind = "revealedBagToken", widget = item.widget, slotId = item.slotId, imagePath = item.imagePath,
+      cx = item.cx, cy = item.cy, scale = self.zoom }
   end
   return nil
 end
@@ -1572,7 +1623,8 @@ function T:processInput()
   end
   self.overlayHoverId = nil
   if item and item.tooltip and not self.drag then ui.tooltip("table:" .. item.kind .. ":" .. (item.zoneId or item.tooltip), item.tooltip) end
-  if item and (DRAGGABLE[item.kind] or item.kind == "shuffle" or item.kind == "avatar" or item.kind == "deckSave") then
+  if item and (DRAGGABLE[item.kind] or item.kind == "shuffle" or item.kind == "avatar" or item.kind == "deckSave"
+    or item.kind == "tokenBagIdle") then
     if not (item.kind == "zone" and not item.top) and item.interactable ~= false then ui.setCursor("hand") end
   end
 
@@ -1675,7 +1727,7 @@ function T:processInput()
       local wx, wy2 = V.screenToWorld(self, mx, my)
       self.boxSelect = { sx = wx, sy = wy2, additive = love.keyboard.isDown("lshift", "rshift") }
       return
-    elseif k == "shuffle" or k == "deckSave" or k == "avatar" then
+    elseif k == "shuffle" or k == "deckSave" or k == "avatar" or k == "tokenBagIdle" then
       self.clickItem = item
     elseif (k == "counter" or k == "dockedCounter") and ui.clickCount(1) >= 2 and item.interactable then
       local rightSide
@@ -1691,6 +1743,8 @@ function T:processInput()
         if k == "pile" then
           local rootId = item.rootId
           src.onClick = function() self.controller:drawCard(rootId, 1) end
+        elseif k == "revealedBagToken" then
+          src.onClick = function() self.controller:returnBagToken(item.widget.instanceId, item.slotId) end
         end
         self:pressSource(self:applySelectionToPress(item, src), mx, my)
       end
@@ -1703,6 +1757,7 @@ function T:processInput()
       if ci.kind == "shuffle" then ci.click()
       elseif ci.kind == "deckSave" then self:saveDeckWidget(ci.widget)
       elseif ci.kind == "avatar" then self.session:setActiveSeat(ci.player.id)
+      elseif ci.kind == "tokenBagIdle" then self.controller:drawBagToken(ci.widget.instanceId)
       end
     end
   end

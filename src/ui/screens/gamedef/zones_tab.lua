@@ -12,6 +12,7 @@ local util = require("src.core.util")
 local uuid = require("src.core.uuid")
 local common = require("src.ui.screens.gamedef.common")
 local listDetail = require("src.ui.kit.list_detail")
+local fs = require("src.data.fs")
 
 local keyOf = common.keyOf
 
@@ -23,7 +24,7 @@ function T.new(editor)
 end
 
 local KIND_OPTIONS = { { value = "card", label = "Card Zone" }, { value = "widget", label = "Widget Zone" } }
-local WIDGET_KIND_OPTIONS = { { value = "counter", label = "Counter" } }
+local WIDGET_KIND_OPTIONS = { { value = "counter", label = "Counter" }, { value = "tokenBag", label = "Token Bag" } }
 local SIDE_OPTIONS = { { value = "left", label = "Left" }, { value = "right", label = "Right" } }
 
 local LIST_W = 300
@@ -33,7 +34,14 @@ local function isInteger(s) return s:match("^%-?%d+$") ~= nil end
 
 -- Short flags shown under a zone's name in the list.
 local function badgesOf(zone)
-  if zone.kind ~= "card" then return "Counter" end
+  if zone.kind ~= "card" then
+    if zone.widgetKind == "tokenBag" then
+      local total = 0
+      for _, e in ipairs(zone.bagEntries) do total = total + e.quantity end
+      return total .. " token" .. (total == 1 and "" or "s")
+    end
+    return "Counter"
+  end
   local b = {}
   if zone.shared then b[#b + 1] = "Shared" end
   if zone.dealsBuiltDeck and not zone.shared then b[#b + 1] = "Deck" end
@@ -225,16 +233,22 @@ end
 -- The widget-zone settings. Returns height used.
 function T:drawWidgetZoneFields(zone, k, x, y, w)
   local G = common.GAP
-  local yy = y + group("Counter", x, y, w) + 8
+  local yy = y + group("Widget", x, y, w) + 8
   local hw = (w - G) / 2
   zone.widgetKind = ui.dropdown(k .. ":wkind", x, yy, hw, WIDGET_KIND_OPTIONS, zone.widgetKind, { label = "Widget Type" })
+  yy = yy + common.FIELD_H + G
+
+  if zone.widgetKind == "tokenBag" then
+    return (yy - y) + self:drawTokenBagFields(zone, k, x, yy, w)
+  end
+
   -- Starting Value keeps what's typed; anything unparsable counts as 0.
   local function valueOf(s) return isInteger(s) and tonumber(s) or 0 end
   local st = ui.state(k .. ":startText")
   if st.text == nil or valueOf(st.text) ~= zone.counterStartingValue then
     st.text = tostring(zone.counterStartingValue)
   end
-  st.text = ui.textField(k .. ":start", x + hw + G, yy, hw, st.text, { label = "Starting Value",
+  st.text = ui.textField(k .. ":start", x, yy, hw, st.text, { label = "Starting Value",
     filter = function(s) return s:match("^[%d%-]*$") ~= nil end })
   zone.counterStartingValue = valueOf(st.text)
   yy = yy + common.FIELD_H + G
@@ -244,6 +258,53 @@ function T:drawWidgetZoneFields(zone, k, x, y, w)
   zone.counterStartingTextColor, h2 = colorpicker.field(k .. ":textcolor", x + hw + G, yy, hw, zone.counterStartingTextColor,
     { hexLabel = "Starting Text Color (hex)" })
   yy = yy + math.max(h1, h2)
+  return yy - y
+end
+
+-- Fields for widgetKind == "tokenBag": the bag's own idle image, whether a
+-- returned token goes back into the bag or is destroyed, and the bag's
+-- contents (a token image + quantity per row, like the card-entries editor
+-- below does for DeckEntry, but picking a token image instead of a card).
+function T:drawTokenBagFields(zone, k, x, y, w)
+  local c = theme.c
+  local yy = y
+  local THUMB = 56
+  local thumb = ui.region(k .. ":bagimg", x, yy, THUMB, THUMB, { cursor = "hand", tooltip = "Choose Bag Image..." })
+  common.imagePreviewBox(zone.bagImagePath and fs.join(self.editor.folderPath, "tokens", zone.bagImagePath),
+    x, yy, THUMB, THUMB)
+  if thumb.clicked then
+    common.chooseTokenImage(self.editor.folderPath, function(file) zone.bagImagePath = file end)
+  end
+  ui.text(zone.bagImagePath or "(no bag image)", x + THUMB + 12, yy, { w = w - THUMB - 12, h = THUMB,
+    valign = "middle", ellipsis = true, color = zone.bagImagePath and c.onSurface or c.onSurfaceVariant })
+  yy = yy + THUMB + 12
+
+  local th
+  zone.bagReturnable, th = common.toggleRow(k .. ":returnable", "Returnable",
+    "A returned token goes back into the bag's contents; off, it's destroyed instead", x, yy, w, zone.bagReturnable)
+  yy = yy + th + 12
+
+  yy = yy + common.groupLabel("Contents", x, yy, w) + 4
+  local images = common.tokenFolderImages(self.editor.folderPath)
+  local options = util.map(images, function(img) return { value = img.file, label = img.name } end)
+  local remove
+  for i, entry in ipairs(zone.bagEntries) do
+    local ek = k .. ":bagentry" .. i
+    local dw = w - 8 - common.stepperWidth
+    local picked = ui.dropdown(ek .. ":img", x, yy + 4, dw, options, entry.definitionId,
+      { h = 40, placeholder = "(choose image)", size = 14 })
+    if picked ~= entry.definitionId then zone.bagEntries[i] = models.DeckEntry.new(picked, entry.quantity) end
+    local q, removed = common.stepper(ek, x + w, yy + 4, entry.quantity, { removeTooltip = "Remove Entry" })
+    if q ~= entry.quantity then zone.bagEntries[i] = models.DeckEntry.new(zone.bagEntries[i].definitionId, q) end
+    if removed then remove = i end
+    yy = yy + 48
+  end
+  if remove then table.remove(zone.bagEntries, remove) end
+  if ui.button("Add Entry", x - 8, yy, nil, 40, { variant = "text", icon = "add", id = k .. ":addbagentry",
+    disabled = #images == 0 }) then
+    zone.bagEntries[#zone.bagEntries + 1] = models.DeckEntry.new(images[1].file, 1)
+  end
+  yy = yy + 40
   return yy - y
 end
 
