@@ -68,6 +68,10 @@ M.BoardWidgetKind = { simpleCounter = true, token = true, imageToken = true, arr
   deckBuilder = true, tokenBag = true }
 M.SharedZoneSide = { left = true, right = true }
 M.ZoneKind = { card = true, widget = true }
+-- Adding a new kind here needs fields in BOTH src/ui/screens/gamedef/zones_tab.lua's
+-- T:drawWidgetZoneFields AND scenario_tab.lua's T.drawScenarioZoneDetail widget
+-- branch -- the Token Bag and Counter-image features each initially missed the
+-- scenario side.
 M.ZoneWidgetKind = { counter = true, tokenBag = true }
 M.PlayerRole = { host = true, client = true }
 M.SearchTargetType = { zone = true, pile = true }
@@ -367,6 +371,7 @@ function ZoneDefinition.new(f)
     counterStartingValue = f.counterStartingValue or 0,
     counterStartingColor = f.counterStartingColor or M.defaultBoardWidgetBackgroundColor,
     counterStartingTextColor = f.counterStartingTextColor or M.defaultBoardWidgetTextColor,
+    counterImagePath = f.counterImagePath,
     bagImagePath = f.bagImagePath,
     bagReturnable = default(f.bagReturnable, true),
     bagEntries = f.bagEntries or {},
@@ -396,6 +401,7 @@ function ZoneDefinition.fromJson(t)
     counterStartingValue = t.counterStartingValue,
     counterStartingColor = t.counterStartingColor,
     counterStartingTextColor = t.counterStartingTextColor,
+    counterImagePath = t.counterImagePath,
     bagImagePath = t.bagImagePath,
     bagReturnable = default(t.bagReturnable, true),
     bagEntries = mapJson(t.bagEntries, DeckEntry.fromJson),
@@ -425,6 +431,7 @@ function ZoneDefinition.toJson(z)
     "counterStartingValue", unlessDefault(z.counterStartingValue, 0),
     "counterStartingColor", unlessDefault(z.counterStartingColor, M.defaultBoardWidgetBackgroundColor),
     "counterStartingTextColor", unlessDefault(z.counterStartingTextColor, M.defaultBoardWidgetTextColor),
+    "counterImagePath", z.counterImagePath,
     "bagImagePath", z.bagImagePath,
     "bagReturnable", unlessDefault(z.bagReturnable, true),
     "bagEntries", nonEmptyList(z.bagEntries, DeckEntry.toJson)

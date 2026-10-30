@@ -24,6 +24,9 @@ function T.new(editor)
 end
 
 local KIND_OPTIONS = { { value = "card", label = "Card Zone" }, { value = "widget", label = "Widget Zone" } }
+-- Any new widget kind here needs fields in T:drawWidgetZoneFields below AND
+-- in scenario_tab.lua's T.drawScenarioZoneDetail widget branch -- the Token
+-- Bag and Counter-image features each initially missed the scenario side.
 local WIDGET_KIND_OPTIONS = { { value = "counter", label = "Counter" }, { value = "tokenBag", label = "Token Bag" } }
 local SIDE_OPTIONS = { { value = "left", label = "Left" }, { value = "right", label = "Right" } }
 
@@ -252,6 +255,19 @@ function T:drawWidgetZoneFields(zone, k, x, y, w)
   if zone.widgetKind == "tokenBag" then
     return (yy - y) + self:drawTokenBagFields(zone, k, x, yy, w)
   end
+
+  -- An optional image replaces the solid fill as the counter's main
+  -- graphic; its color becomes a small accent circle behind the number.
+  local THUMB = 56
+  local thumb = ui.region(k .. ":counterimg", x, yy, THUMB, THUMB, { cursor = "hand", tooltip = "Choose Counter Image..." })
+  common.imagePreviewBox(zone.counterImagePath and fs.join(self.editor.folderPath, "tokens", zone.counterImagePath),
+    x, yy, THUMB, THUMB)
+  if thumb.clicked then
+    common.chooseTokenImage(self.editor.folderPath, function(file) zone.counterImagePath = file end)
+  end
+  ui.text(zone.counterImagePath or "(no image)", x + THUMB + 12, yy, { w = w - THUMB - 12, h = THUMB,
+    valign = "middle", ellipsis = true, color = zone.counterImagePath and c.onSurface or c.onSurfaceVariant })
+  yy = yy + THUMB + G
 
   -- Starting Value keeps what's typed; anything unparsable counts as 0.
   local function valueOf(s) return isInteger(s) and tonumber(s) or 0 end

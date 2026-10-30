@@ -1177,7 +1177,7 @@ end
 function T:drawWidgetFace(w, cx, cy, s)
   local ww, wh = V.widgetInstanceSize(self, w)
   if w.kind == "simpleCounter" then
-    V.counterFace(w, cx - ww * s / 2, cy - wh * s / 2, ww * s, 1)
+    V.counterFace(self, w, cx - ww * s / 2, cy - wh * s / 2, ww * s, 1)
   elseif w.kind == "token" or w.kind == "imageToken" then
     V.tokenFace(self, w, cx, cy, ww * s, 1)
   elseif w.kind == "packGenerator" then

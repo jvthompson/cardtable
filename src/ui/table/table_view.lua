@@ -467,18 +467,38 @@ local function drawTablePiles(T)
   end
 end
 
-local function counterFace(w, x, y, size, alpha)
-  local bg = rgba(w.backgroundColor, alpha)
-  ui.rect("fill", x, y, size, size, 8 * size / 80, bg)
+-- When the counter has an image (and it loads), it replaces the solid fill
+-- as the widget's main graphic; a small circle in backgroundColor sits
+-- behind the value so it stays legible over whatever's in the image.
+local function counterFace(T, w, x, y, size, alpha)
+  local r = 8 * size / 80
+  local cx, cy = x + size / 2, y + size / 2
+  local img
+  if w.imagePath then
+    local path = T.game.folderPath and fs.join(T.game.folderPath, "tokens", w.imagePath)
+    img = path and imageCache.get(path)
+  end
+  if img then
+    local iw, ih = img:getDimensions()
+    local s = math.min(size / iw, size / ih)
+    love.graphics.setColor(1, 1, 1, alpha)
+    love.graphics.draw(img, cx - iw * s / 2, cy - ih * s / 2, 0, s, s)
+  else
+    ui.rect("fill", x, y, size, size, r, rgba(w.backgroundColor, alpha))
+  end
   love.graphics.setColor(1, 1, 1, 0.24 * alpha)
-  love.graphics.rectangle("line", x + 0.5, y + 0.5, size - 1, size - 1, 8 * size / 80, 8 * size / 80)
+  love.graphics.rectangle("line", x + 0.5, y + 0.5, size - 1, size - 1, r, r)
+  local s = size / 80
+  if img then
+    ui.setColor(rgba(w.backgroundColor, alpha))
+    love.graphics.circle("fill", cx, cy, 18 * s)
+  end
   local f = theme.font(22, "bold")
   local t = tostring(w.value)
   love.graphics.setFont(f)
   ui.setColor(rgba(w.textColor, alpha))
-  local s = size / 80
   local fit = math.min(1, (size - 8 * s) / (f:getWidth(t) * s))
-  love.graphics.print(t, x + size / 2, y + size / 2, 0, s * fit, s * fit, f:getWidth(t) / 2, f:getHeight() / 2)
+  love.graphics.print(t, cx, cy, 0, s * fit, s * fit, f:getWidth(t) / 2, f:getHeight() / 2)
 end
 V.counterFace = counterFace
 
@@ -676,7 +696,7 @@ local function drawTableWidgets(T)
       end
       local interactable = not T.tabDown
       if w.kind == "simpleCounter" then
-        counterFace(w, x, y, ww * s, alpha)
+        counterFace(T, w, x, y, ww * s, alpha)
         V.addItem(T, { kind = "counter", widget = w, x = x, y = y, w = ww * s, h = wh * s, interactable = interactable })
       elseif w.kind == "token" or w.kind == "imageToken" then
         tokenFace(T, w, px, py, ww * s, alpha)
@@ -940,7 +960,7 @@ local function drawZoneSlot(T, player, zone, isLocal, x, y, rotate)
           drawTokenBag(T, w, zone, cx, cy, interactable)
           if isLocal then addBagDropZone(T, zone.id, cx - 40, cy - 40, 80, 80) end
         else
-          counterFace(w, cx - 40, cy - 40, 80, 1)
+          counterFace(T, w, cx - 40, cy - 40, 80, 1)
           V.addItem(T, { kind = "dockedCounter", widget = w, zone = zone, x = cx - 40, y = cy - 40, w = 80, h = 80,
             interactable = interactable, tooltip = zone.name })
         end

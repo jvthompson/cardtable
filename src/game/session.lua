@@ -107,6 +107,7 @@ local function buildDealtWidget(zone, ownerId, zIndex)
     f.imagePath, f.bagRemaining, f.bagRevealed = zone.bagImagePath, expandBagEntries(zone.bagEntries), {}
   else
     f.value, f.backgroundColor, f.textColor = zone.counterStartingValue, zone.counterStartingColor, zone.counterStartingTextColor
+    f.imagePath = zone.counterImagePath
   end
   return models.BoardWidgetInstance.new(f)
 end

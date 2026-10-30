@@ -58,14 +58,21 @@ return function(t)
     t.it("static entries, faceUp, widget zones", function()
       local g = game({ zones = {
         zone({ id = "z", name = "Z", faceUp = true, entries = { models.DeckEntry.new("b", 2) } }),
-        zone({ id = "life", name = "Life", kind = "widget", counterStartingValue = 20, counterStartingColor = 0xFFD32F2F }),
+        zone({ id = "life", name = "Life", kind = "widget", counterStartingValue = 20, counterStartingColor = 0xFFD32F2F,
+          counterImagePath = "heart.png" }),
       } })
       local s = Session.dealFromZones({ game = g, players = { p1, p2 }, localPlayerId = "p1", now = now })
       t.eq(#inZone(s, "z", "p2"), 2)
       t.ok(inZone(s, "z", "p1")[1].faceUp)
       t.eq(#s.state.widgets, 2)
       local w = s.state.widgets[2]
-      t.eq({ w.kind, w.value, w.backgroundColor, w.ownerId, w.zoneId, w.zIndex }, { "simpleCounter", 20, 0xFFD32F2F, "p2", "life", 1 })
+      t.eq({ w.kind, w.value, w.backgroundColor, w.ownerId, w.zoneId, w.zIndex, w.imagePath },
+        { "simpleCounter", 20, 0xFFD32F2F, "p2", "life", 1, "heart.png" })
+    end)
+    t.it("counter zone with no image deals a widget with no imagePath", function()
+      local g = game({ zones = { zone({ id = "life", name = "Life", kind = "widget", counterStartingValue = 20 }) } })
+      local s = Session.dealFromZones({ game = g, players = { p1 }, localPlayerId = "p1", now = now })
+      t.isNil(s.state.widgets[1].imagePath)
     end)
     t.it("owned token bag zone deals one widget per player, contents expanded from bagEntries", function()
       local g = game({ zones = {

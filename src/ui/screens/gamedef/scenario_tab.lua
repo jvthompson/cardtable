@@ -19,8 +19,11 @@ local CR = require("src.ui.table.card_render")
 local color = require("src.core.color")
 local tableSettings = require("src.data.table_settings")
 local fs = require("src.data.fs")
+local colorpicker = require("src.ui.kit.colorpicker")
 
 local keyOf = common.keyOf
+
+local function isInteger(s) return s:match("^%-?%d+$") ~= nil end
 
 local T = {}
 T.__index = T
@@ -39,6 +42,9 @@ end
 local ROW_H = 56
 local SIDE_OPTIONS = { { value = "left", label = "Left" }, { value = "right", label = "Right" } }
 local ZONE_KIND_OPTIONS = { { value = "card", label = "Card Zone" }, { value = "widget", label = "Widget Zone" } }
+-- Any new widget kind here needs fields in T.drawScenarioZoneDetail's widget
+-- branch below AND in zones_tab.lua's T:drawWidgetZoneFields -- the Token
+-- Bag and Counter-image features each initially missed the scenario side.
 local ZONE_WIDGET_KIND_OPTIONS = { { value = "counter", label = "Counter" }, { value = "tokenBag", label = "Token Bag" } }
 local VIEW_OPTIONS = {
   { value = "zones", label = "Zones" },
@@ -278,6 +284,44 @@ local function drawScenarioTokenBagFields(sub, zone, k, x, y, w)
   return yy - y
 end
 
+-- Mirrors zones_tab.lua's counter branch of T:drawWidgetZoneFields, for a
+-- scenario-defined widget zone: an optional image (replaces the solid fill
+-- as the counter's main graphic; its color becomes a small accent circle
+-- behind the number), starting value, and starting/text colors.
+local function drawScenarioCounterFields(sub, zone, k, x, y, w)
+  local c = theme.c
+  local folderPath = sub.editor.folderPath
+  local yy = y
+  local hw = (w - common.GAP) / 2
+  local THUMB = 56
+  local thumb = ui.region(k .. ":counterimg", x, yy, THUMB, THUMB, { cursor = "hand", tooltip = "Choose Counter Image..." })
+  common.imagePreviewBox(zone.counterImagePath and fs.join(folderPath, "tokens", zone.counterImagePath), x, yy, THUMB, THUMB)
+  if thumb.clicked then
+    common.chooseTokenImage(folderPath, function(file) zone.counterImagePath = file end)
+  end
+  ui.text(zone.counterImagePath or "(no image)", x + THUMB + 12, yy, { w = w - THUMB - 12, h = THUMB,
+    valign = "middle", ellipsis = true, color = zone.counterImagePath and c.onSurface or c.onSurfaceVariant })
+  yy = yy + THUMB + common.GAP
+
+  local function valueOf(s) return isInteger(s) and tonumber(s) or 0 end
+  local st = ui.state(k .. ":startText")
+  if st.text == nil or valueOf(st.text) ~= zone.counterStartingValue then
+    st.text = tostring(zone.counterStartingValue)
+  end
+  st.text = ui.textField(k .. ":start", x, yy, hw, st.text, { label = "Starting Value",
+    filter = function(s) return s:match("^[%d%-]*$") ~= nil end })
+  zone.counterStartingValue = valueOf(st.text)
+  yy = yy + common.FIELD_H + common.GAP
+
+  local h1, h2
+  zone.counterStartingColor, h1 = colorpicker.field(k .. ":color", x, yy, hw, zone.counterStartingColor,
+    { hexLabel = "Starting Color (hex)" })
+  zone.counterStartingTextColor, h2 = colorpicker.field(k .. ":textcolor", x + hw + common.GAP, yy, hw, zone.counterStartingTextColor,
+    { hexLabel = "Starting Text Color (hex)" })
+  yy = yy + math.max(h1, h2)
+  return yy - y
+end
+
 function T.drawScenarioZoneDetail(sub, zone, x, y, w, h)
   -- Scenario zones are always shared.
   zone.shared = true
@@ -310,6 +354,8 @@ function T.drawScenarioZoneDetail(sub, zone, x, y, w, h)
     yy = yy + common.FIELD_H + G
     if zone.widgetKind == "tokenBag" then
       yy = yy + drawScenarioTokenBagFields(sub, zone, k, cx, yy, cw)
+    else
+      yy = yy + drawScenarioCounterFields(sub, zone, k, cx, yy, cw)
     end
     yy = yy + common.PAD
     ui.endScroll("scen:zdetail", yy + off - y)
