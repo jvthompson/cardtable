@@ -639,11 +639,6 @@ function Session:duplicateWidget(sourceInstanceId, newInstanceId, x, y)
   self:notify()
 end
 
--- Roughly a card's height, so a token placed from a bag stays large and
--- readable on the table instead of shrinking to the default imageToken
--- marker size.
-local PLACED_TOKEN_SIZE = 100
-
 function Session:drawBagToken(instanceId, actingPlayerId, rng)
   local widget = self:findWidget(instanceId)
   if not widget or widget.kind ~= "tokenBag" or #widget.bagRemaining == 0 then return end
@@ -665,8 +660,10 @@ function Session:returnBagToken(instanceId, slotId, actingPlayerId)
   self:notify()
 end
 
+-- "native" keeps the placed token at the image's own actual pixel size,
+-- instead of shrinking to the default imageToken marker size.
 function Session:placeBagTokenOnTable(instanceId, slotId, newInstanceId, x, y, actingPlayerId)
-  self.state = A.placeBagTokenOnTable(self.state, instanceId, slotId, newInstanceId, x, y, nil, PLACED_TOKEN_SIZE)
+  self.state = A.placeBagTokenOnTable(self.state, instanceId, slotId, newInstanceId, x, y, nil, "native")
   self:log(actingPlayerId, "placed a token from the bag onto the table.")
   self:notify()
 end

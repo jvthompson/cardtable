@@ -414,7 +414,7 @@ return function(t)
       t.eq(lastLog(s2), "Alice discarded a token from the bag.")
     end)
 
-    t.it("placeBagTokenOnTable creates a large unowned imageToken and clears the reveal", function()
+    t.it("placeBagTokenOnTable creates a native-size unowned imageToken and clears the reveal", function()
       local s = bagSession()
       local bag = bagWidget(s)
       s:drawBagToken(bag.instanceId, "p1", function() return 1 end)
@@ -422,7 +422,8 @@ return function(t)
       s:placeBagTokenOnTable(bag.instanceId, slotId, "placed1", 0.3, 0.4, "p1")
       t.eq(#bagWidget(s).bagRevealed, 0)
       local placed = util.find(s.state.widgets, function(w) return w.instanceId == "placed1" end)
-      t.eq({ placed.kind, placed.x, placed.y, placed.sizeOverride, placed.ownerId }, { "imageToken", 0.3, 0.4, 100, nil })
+      t.eq({ placed.kind, placed.x, placed.y, placed.sizeOverride, placed.ownerId },
+        { "imageToken", 0.3, 0.4, "native", nil })
       t.eq(lastLog(s), "Alice placed a token from the bag onto the table.")
     end)
 

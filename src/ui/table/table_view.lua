@@ -29,10 +29,6 @@ V.counterSize = 80
 V.tokenSize = 25
 -- Default footprint for image tokens; tune this independently of V.tokenSize.
 V.imageTokenSize = 25
--- A token placed out of a token bag keeps this footprint (sizeOverride on the
--- new imageToken widget) instead of shrinking to V.imageTokenSize -- see
--- Session.PLACED_TOKEN_SIZE, which the two are meant to agree with.
-V.placedTokenSize = 100
 
 local DECK_HEADER, DECK_FOOTER, DECK_SPACING, DECK_PAD = 24, 36, 8, 8
 
@@ -51,10 +47,24 @@ function V.widgetSize(T, kind)
   return 0, 0
 end
 
+-- An image's own actual pixel size (the larger side doubled into a square,
+-- so a non-square image still contain-fits at exactly 1 table pixel per
+-- image pixel -- see tokenFace), falling back to V.imageTokenSize if the
+-- image can't be loaded.
+function V.nativeImageSize(T, imagePath)
+  local path = imagePath and T.game.folderPath and fs.join(T.game.folderPath, "tokens", imagePath)
+  local img = path and imageCache.get(path)
+  if not img then return V.imageTokenSize, V.imageTokenSize end
+  local iw, ih = img:getDimensions()
+  local m = math.max(iw, ih)
+  return m, m
+end
+
 -- Like V.widgetSize, but for an actual widget instance: honors its own
--- sizeOverride (e.g. a token placed from a bag, kept large/card-sized)
+-- sizeOverride (e.g. a token placed from a bag, kept at native image size)
 -- before falling back to the kind's default square size.
 function V.widgetInstanceSize(T, w)
+  if w.sizeOverride == "native" then return V.nativeImageSize(T, w.imagePath) end
   if w.sizeOverride then return w.sizeOverride, w.sizeOverride end
   return V.widgetSize(T, w.kind)
 end

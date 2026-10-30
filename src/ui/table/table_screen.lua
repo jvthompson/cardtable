@@ -975,9 +975,10 @@ end
 -- A short press (not a drag) returns the token to the bag instead; dropped
 -- off-table it's left alone -- a tiny accidental drag must never destroy a
 -- non-returnable token.
-function T:handleRevealedBagTokenDrop(bagInstanceId, slotId, cx, cy)
+function T:handleRevealedBagTokenDrop(bagInstanceId, slotId, imagePath, cx, cy)
   if not self:isOverTable(cx, cy) then return end
-  local fx, fy = V.screenToCanonicalClamped(self, cx, cy, V.placedTokenSize / 2, V.placedTokenSize / 2)
+  local hw, hh = V.nativeImageSize(self, imagePath)
+  local fx, fy = V.screenToCanonicalClamped(self, cx, cy, hw / 2, hh / 2)
   self.controller:placeBagTokenOnTable(bagInstanceId, slotId, uuid.v4(), fx, fy)
 end
 
@@ -1104,7 +1105,7 @@ function T:endDrag()
   elseif d.kind == "newToken" then
     self:handleNewTokenDrop(cx, cy)
   elseif d.kind == "revealedBagToken" then
-    self:handleRevealedBagTokenDrop(src.widget.instanceId, src.slotId, cx, cy)
+    self:handleRevealedBagTokenDrop(src.widget.instanceId, src.slotId, src.imagePath, cx, cy)
   elseif d.kind == "selection" then
     self:handleSelectionDrop(d, cx, cy)
   end
@@ -1168,7 +1169,7 @@ function T:drawDragFeedback()
   elseif d.kind == "newToken" then
     self:drawWidgetFace(COLOR_TOKEN_WIDGET, cx, cy, s)
   elseif d.kind == "revealedBagToken" then
-    self:drawWidgetFace({ kind = "imageToken", imagePath = d.src.imagePath, sizeOverride = V.placedTokenSize }, cx, cy, s)
+    self:drawWidgetFace({ kind = "imageToken", imagePath = d.src.imagePath, sizeOverride = "native" }, cx, cy, s)
   end
 end
 

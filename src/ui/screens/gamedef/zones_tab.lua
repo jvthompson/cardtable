@@ -232,10 +232,21 @@ end
 
 -- The widget-zone settings. Returns height used.
 function T:drawWidgetZoneFields(zone, k, x, y, w)
+  local c = theme.c
   local G = common.GAP
-  local yy = y + group("Widget", x, y, w) + 8
+  local yy = y + group("Ownership", x, y, w)
+  local sh
+  zone.shared, sh = common.toggleRow(k .. ":shared", "Shared",
+    "One public widget for everyone, instead of one private widget per player", x, yy, w, zone.shared)
+  yy = yy + sh + 8
+
+  yy = yy + group("Widget", x, yy, w) + 8
   local hw = (w - G) / 2
   zone.widgetKind = ui.dropdown(k .. ":wkind", x, yy, hw, WIDGET_KIND_OPTIONS, zone.widgetKind, { label = "Widget Type" })
+  if zone.shared then
+    ui.text("Side", x + hw + G, yy + 4, { h = 40, valign = "middle", color = c.onSurfaceVariant })
+    zone.side = ui.segmented(k .. ":side", x + hw + G + 40, yy + 4, hw - 40, SIDE_OPTIONS, zone.side)
+  end
   yy = yy + common.FIELD_H + G
 
   if zone.widgetKind == "tokenBag" then

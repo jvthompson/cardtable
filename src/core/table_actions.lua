@@ -566,8 +566,9 @@ end
 
 -- Removes slotId from the bag's bagRevealed and appends a brand-new free
 -- imageToken widget at (x, y) carrying that token's image. `size` (when
--- given) becomes the new widget's sizeOverride, so it renders large (card
--- sized) rather than shrinking to the default imageToken marker size.
+-- given) becomes the new widget's sizeOverride; "native" renders the token
+-- at the image's own actual pixel size rather than shrinking to the default
+-- imageToken marker size.
 function A.placeBagTokenOnTable(state, instanceId, slotId, newInstanceId, x, y, ownerId, size)
   local revealedEntry
   for _, w in ipairs(state.widgets) do

@@ -305,6 +305,8 @@ function T.drawScenarioZoneDetail(sub, zone, x, y, w, h)
 
   if zone.kind == "widget" then
     zone.widgetKind = ui.dropdown(k .. ":wkind", cx, yy, hw, ZONE_WIDGET_KIND_OPTIONS, zone.widgetKind, { label = "Widget Type" })
+    ui.text("Side", cx + hw + G, yy + 4, { h = 40, valign = "middle", color = theme.c.onSurfaceVariant })
+    zone.side = ui.segmented(k .. ":side", cx + hw + G + 40, yy + 4, hw - 40, SIDE_OPTIONS, zone.side)
     yy = yy + common.FIELD_H + G
     if zone.widgetKind == "tokenBag" then
       yy = yy + drawScenarioTokenBagFields(sub, zone, k, cx, yy, cw)

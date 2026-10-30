@@ -88,7 +88,7 @@ return function(t)
       local w = models.BoardWidgetInstance.new({ instanceId = "w", kind = "tokenBag", x = 0, y = 0, zIndex = 0 })
       t.eq({ w.sizeOverride, w.bagRemaining, w.bagRevealed }, { nil, {}, {} })
       t.notOk(json.encode(models.BoardWidgetInstance.toJson(w)):find("bagR", 1, true))
-      local filled = util.copyWith(w, { sizeOverride = 100, bagRemaining = { "a.png", "a.png", "b.png" },
+      local filled = util.copyWith(w, { sizeOverride = "native", bagRemaining = { "a.png", "a.png", "b.png" },
         bagRevealed = { models.RevealedToken.new("s1", "c.png") } })
       t.eq((roundTrip(models.BoardWidgetInstance, filled)), filled)
     end)
