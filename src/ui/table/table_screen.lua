@@ -35,6 +35,9 @@ local CR = require("src.ui.table.card_render")
 local V = require("src.ui.table.table_view")
 local selection = require("src.ui.table.selection")
 local json = require("lib.json")
+-- The gamedef editor's token picker/grid helpers, reused by the Token
+-- Bag's "Change Tokens" dialog so it matches the zone editor's own UI.
+local common = require("src.ui.screens.gamedef.common")
 
 local T = {}
 T.__index = T
@@ -66,10 +69,9 @@ function T.new(opts)
   self.rulebook = require("src.ui.screens.rulebook_viewer").new(self.game)
   self.lastPreviewAt = 0
   self.playmats, self.playmatIndex = {}, 0
-  self.perPlayerPlaymats = false
+  self.playmatMode = "none"
   self:loadPlaymats()
-  self.tokenImages = {}
-  self:loadTokenImages()
+  self.tokenPickerType = "all"
   self.library = filterBar.newState(self.game)
   self.libraryScenario = false
   -- Box selection: selected card instance ids (whole piles) and token ids.
@@ -190,6 +192,13 @@ end
 function T:isSharedZone(zoneId)
   local z = self:zoneById(zoneId)
   return z ~= nil and z.shared
+end
+
+-- Shared zones' top card can always be flipped; an owned zone's top card
+-- only when the editor marked it Flippable.
+function T:zoneAllowsFlip(zoneId)
+  local z = self:zoneById(zoneId)
+  return z ~= nil and (z.shared or z.flippable)
 end
 
 ---------------------------------------------------------------------------
@@ -385,6 +394,22 @@ function T:hoveredSelectionRoots()
   return self:selectedRootList()
 end
 
+-- The hovered free token widget, interactable just like its right-click
+-- menu (see k == "token" in openItemMenu) -- not ownership-gated.
+function T:hoveredToken()
+  local item = self.hoverItem
+  if not item or item.kind ~= "token" or not item.interactable then return nil end
+  return item.widget
+end
+
+-- Mirrors hoveredSelectionRoots, for tokens: selected token ids when the
+-- hovered token belongs to a 2+ selection, else nil.
+function T:hoveredSelectedTokenIds()
+  local w = self:hoveredToken()
+  if not w or not self.selection.tokens[w.instanceId] or self.selCount < 2 then return nil end
+  return self:selectedTokenIds()
+end
+
 local function cardCountText(n) return n == 1 and "1 card" or (n .. " cards") end
 
 -- Confirms before cards leave your ownership.
@@ -433,19 +458,28 @@ end
 -- Token images (<gameFolder>/tokens, picked from the "Tokens" board menu)
 ---------------------------------------------------------------------------
 
-function T:loadTokenImages()
+-- The tokens defined on the game's Tokens tab, in their editor order, as
+-- picker entries -- or none at all if the game hasn't defined any (no
+-- fallback to scanning the folder; that's only the editor's picker's job).
+function T:definedTokenEntries()
   local folder = self.game.folderPath
-  if not folder then return end
-  local dir = fs.join(folder, "tokens")
+  if not folder or not self.game.usesTokens then return {} end
   local list = {}
-  for _, e in ipairs(fs.list(dir) or {}) do
-    local ext = fs.extension(e.name)
-    if not e.isDir and (ext == ".png" or ext == ".jpg" or ext == ".jpeg" or ext == ".webp") then
-      list[#list + 1] = { name = fs.stripExtension(e.name), file = e.name, path = fs.join(dir, e.name) }
-    end
+  for _, tok in ipairs(self.game.tokens) do
+    list[#list + 1] = { name = models.TokenDefinition.displayName(tok), file = tok.imagePath,
+      path = tok.imagePath and fs.join(folder, "tokens", tok.imagePath), tokenType = models.TokenDefinition.typeOf(tok) }
   end
-  table.sort(list, function(a, b) return a.name:lower() < b.name:lower() end)
-  self.tokenImages = list
+  return list
+end
+
+-- {value, label} options for the picker's type filter: "All" plus every
+-- distinct type found on the game's tokens, in first-seen order.
+function T:tokenTypeOptions()
+  local options = { { value = "all", label = "All" } }
+  for _, ty in ipairs(models.GameDefinition.tokenTypes(self.game)) do
+    options[#options + 1] = { value = ty, label = ty }
+  end
+  return options
 end
 
 function T:cyclePlaymat()
@@ -454,8 +488,16 @@ function T:cyclePlaymat()
   if self.playmatIndex > #self.playmats then self.playmatIndex = 0 end
 end
 
-function T:togglePerPlayerPlaymats()
-  self.perPlayerPlaymats = not self.perPlayerPlaymats
+-- Cycled with F11: no playmat area, one large shared area, or one per player.
+local PLAYMAT_MODES = { "none", "single", "perPlayer" }
+function T:cyclePlaymatMode()
+  for i, m in ipairs(PLAYMAT_MODES) do
+    if m == self.playmatMode then
+      self.playmatMode = PLAYMAT_MODES[i % #PLAYMAT_MODES + 1]
+      return
+    end
+  end
+  self.playmatMode = PLAYMAT_MODES[1]
 end
 
 ---------------------------------------------------------------------------
@@ -476,16 +518,29 @@ function T:actableHoveredTableCard()
   return c
 end
 
-function T:rotateHovered(clockwise)
+function T:rotateHovered(clockwise, step)
+  step = step or 1
   local roots = self:hoveredSelectionRoots()
   if roots then
-    for _, rootId in ipairs(roots) do self.controller:rotateStack(rootId, clockwise) end
+    for _, rootId in ipairs(roots) do self.controller:rotateStack(rootId, clockwise, step) end
+    sound.play(clockwise and "tap" or "untap")
+    return
+  end
+  local tokenIds = self:hoveredSelectedTokenIds()
+  if tokenIds then
+    for _, id in ipairs(tokenIds) do self.controller:rotateWidget(id, clockwise, step) end
     sound.play(clockwise and "tap" or "untap")
     return
   end
   local c = self:actableHoveredTableCard()
-  if not c then return end
-  self.controller:rotateStack(stacks.rootIdOf(self.state.cards, c), clockwise)
+  if c then
+    self.controller:rotateStack(stacks.rootIdOf(self.state.cards, c), clockwise, step)
+    sound.play(clockwise and "tap" or "untap")
+    return
+  end
+  local w = self:hoveredToken()
+  if not w then return end
+  self.controller:rotateWidget(w.instanceId, clockwise, step)
   sound.play(clockwise and "tap" or "untap")
 end
 
@@ -510,7 +565,7 @@ function T:flipHovered()
   if not c then return end
   local acting = self.session:actingPlayerId()
   if c.ownerId ~= nil and c.ownerId ~= acting then return end
-  if c.zone == "zone" and not self:isSharedZone(c.zoneId) then return end
+  if c.zone == "zone" and not self:zoneAllowsFlip(c.zoneId) then return end
   self.controller:flipCard(c.instanceId)
 end
 
@@ -640,15 +695,15 @@ function T:keypressed(key, _, isrepeat)
     if key == "home" or key == "h" then self.camX, self.camY, self.zoom = 0, 0, 1
     elseif key == "f1" then self.bordersHidden = not self.bordersHidden
     elseif key == "f2" then self.colorTintEnabled = not self.colorTintEnabled
-    elseif key == "f6" then self:togglePerPlayerPlaymats()
+    elseif key == "f11" then self:cyclePlaymatMode()
     elseif key == "f12" then self:cyclePlaymat()
     elseif key == "l" then self:toggleLog()
     elseif key == "r" and ctrlDown() then self:toggleRulebook()
     elseif key == "c" and self.sc then self:toggleChat() end
     return
   end
-  if key == "q" then self:rotateHovered(false)
-  elseif key == "e" then self:rotateHovered(true)
+  if key == "q" then self:rotateHovered(false, ctrlDown() and 0.5 or 1)
+  elseif key == "e" then self:rotateHovered(true, ctrlDown() and 0.5 or 1)
   elseif key == "x" then self:discardHovered()
   elseif key == "f" then self:flipHovered()
   elseif key == "z" then self:bringHoveredToFront()
@@ -656,7 +711,7 @@ function T:keypressed(key, _, isrepeat)
     self.camX, self.camY, self.zoom = 0, 0, 1
   elseif key == "f1" then self.bordersHidden = not self.bordersHidden
   elseif key == "f2" then self.colorTintEnabled = not self.colorTintEnabled
-  elseif key == "f6" then self:togglePerPlayerPlaymats()
+  elseif key == "f11" then self:cyclePlaymatMode()
   elseif key == "f12" then self:cyclePlaymat()
   elseif key == "l" then self:toggleLog()
   elseif key == "r" and ctrlDown() then self:toggleRulebook()
@@ -1257,7 +1312,7 @@ end
 function T:rotateMenu(rootIds)
   local function rotate(clockwise)
     return function()
-      for _, rootId in ipairs(rootIds) do self.controller:rotateStack(rootId, clockwise) end
+      for _, rootId in ipairs(rootIds) do self.controller:rotateStack(rootId, clockwise, 1) end
       sound.play(clockwise and "tap" or "untap")
     end
   end
@@ -1392,6 +1447,7 @@ function T:openItemMenu(item, mx, my)
     if item.widget.kind ~= "imageToken" then
       menu[#menu + 1] = { label = "Set Color", onSelect = function() self:promptSetTokenColor(item.widget) end }
     end
+    menu[#menu + 1] = { label = "Size", submenu = self:tokenSizeMenuItems(item.widget) }
     menu[#menu + 1] = { label = "Delete", onSelect = function() C:deleteWidget(item.widget.instanceId) end }
     overlays.menu(mx, my, menu)
     return true
@@ -1409,7 +1465,10 @@ function T:openItemMenu(item, mx, my)
     overlays.menu(mx, my, { { label = "Delete", onSelect = function() C:deleteWidget(item.widget.instanceId) end } })
     return true
   elseif k == "tokenBagIdle" and item.interactable then
-    overlays.menu(mx, my, { { label = "Reset Bag", onSelect = function() C:resetBag(item.widget.instanceId) end } })
+    overlays.menu(mx, my, {
+      { label = "Change Tokens...", onSelect = function() self:promptChangeTokens(item.widget) end },
+      { label = "Reset Bag", onSelect = function() C:resetBag(item.widget.instanceId) end },
+    })
     return true
   elseif k == "revealedBagToken" and item.interactable then
     overlays.menu(mx, my, { { label = "Return to Bag",
@@ -1482,6 +1541,106 @@ function T:promptSetTokenColor(w)
     end,
     actions = { { label = "Cancel", variant = "text" },
       { label = "Set", variant = "filled", onClick = function() self.controller:setWidgetColors(w.instanceId, st.color, w.textColor) end } },
+  })
+end
+
+-- "Size" submenu items for a token's right-click menu: Default (clears
+-- sizeOverride, back to the widget kind's own default square size),
+-- Medium (2x it), Large (4x it).
+function T:tokenSizeMenuItems(w)
+  local base = V.widgetSize(self, w.kind)
+  local options = { { label = "Default", size = nil }, { label = "Medium", size = base * 2 }, { label = "Large", size = base * 4 } }
+  local items = {}
+  for _, o in ipairs(options) do
+    items[#items + 1] = { label = o.label, checked = w.sizeOverride == o.size,
+      onSelect = function() self.controller:setWidgetSize(w.instanceId, o.size) end }
+  end
+  return items
+end
+
+-- Groups a bag's flat bagRemaining (one entry per token) into {file,
+-- quantity} pairs, in first-appearance order -- the shape the Change
+-- Tokens dialog edits; flattenBagContents below is its inverse.
+local function groupBagRemaining(bagRemaining)
+  local order, counts = {}, {}
+  for _, file in ipairs(bagRemaining) do
+    if not counts[file] then
+      counts[file] = 0
+      order[#order + 1] = file
+    end
+    counts[file] = counts[file] + 1
+  end
+  local out = {}
+  for _, file in ipairs(order) do out[#out + 1] = { file = file, quantity = counts[file] } end
+  return out
+end
+
+local function flattenBagContents(entries)
+  local out = {}
+  for _, e in ipairs(entries) do
+    for _ = 1, e.quantity do out[#out + 1] = e.file end
+  end
+  return out
+end
+
+-- "Change Tokens": lets a player edit a live token bag's contents
+-- directly -- add/remove/retype entries, adjust quantities -- with the
+-- same grid+stepper UI the Token Bag zone editors (zones_tab.lua,
+-- scenario_tab.lua) use for a zone's bagEntries. Commits as one
+-- setBagRemaining call on "Set"; bagRevealed (already-drawn tokens) is
+-- left untouched.
+function T:promptChangeTokens(w)
+  local game = self.game
+  local st = { entries = groupBagRemaining(w.bagRemaining) }
+  local images
+  if game.usesTokens and #game.tokens > 0 then
+    images = util.map(game.tokens, function(tok) return { name = models.TokenDefinition.displayName(tok), file = tok.imagePath } end)
+  else
+    images = common.tokenFolderImages(game.folderPath)
+  end
+  local function nameFor(file)
+    for _, img in ipairs(images) do
+      if img.file == file then return img.name end
+    end
+    return file
+  end
+  local ROW_H = 48
+  overlays.dialog({
+    title = "Change Tokens", width = 480,
+    content = function(_, x, y, cw)
+      local yy = y
+      local remove
+      for i, entry in ipairs(st.entries) do
+        local ek = "ctoken:bagentry" .. i
+        local dw = cw - 8 - common.stepperWidth
+        local r = ui.region(ek .. ":pick", x, yy, dw, ROW_H, { cursor = "hand", tooltip = "Choose Token..." })
+        if r.hovered then ui.rect("fill", x, yy, dw, ROW_H, 6, theme.alpha(theme.c.onSurface, 0.05)) end
+        common.imagePreviewBox(entry.file and fs.join(game.folderPath, "tokens", entry.file),
+          x + 4, yy + 4, ROW_H - 8, ROW_H - 8)
+        ui.text(entry.file and nameFor(entry.file) or "(choose token)", x + ROW_H + 8, yy,
+          { w = dw - ROW_H - 12, h = ROW_H, valign = "middle", ellipsis = true,
+            color = entry.file and theme.c.onSurface or theme.c.onSurfaceVariant })
+        if r.clicked then
+          common.chooseToken(game, game.folderPath, function(file) st.entries[i].file = file end)
+        end
+        local q, removed = common.stepper(ek, x + cw, yy + 4, entry.quantity, { removeTooltip = "Remove Entry" })
+        if q ~= entry.quantity then st.entries[i].quantity = q end
+        if removed then remove = i end
+        yy = yy + ROW_H
+      end
+      if remove then table.remove(st.entries, remove) end
+      if ui.button("Add Entry", x - 8, yy, nil, 40, { variant = "text", icon = "add", id = "ctoken:add" }) then
+        common.chooseToken(game, game.folderPath, function(file)
+          st.entries[#st.entries + 1] = { file = file, quantity = 1 }
+        end)
+      end
+      yy = yy + 40
+      return yy - y
+    end,
+    actions = { { label = "Cancel", variant = "text" },
+      { label = "Set", variant = "filled", onClick = function()
+        self.controller:setBagRemaining(w.instanceId, flattenBagContents(st.entries))
+      end } },
   })
 end
 
@@ -2079,12 +2238,29 @@ local TOKEN_TILE = 96
 function T:drawTokenPicker()
   local sw, sh = ui.screenSize()
   local pw, ph = math.min(900, sw - 40), math.min(600, sh - overlays.contentTop - 40)
-  -- The plain color token is always first and always present, even with no
-  -- custom images in the game's "tokens" folder.
-  local entries = { { kind = "token", name = "Color Token" } }
-  for _, e in ipairs(self.tokenImages) do entries[#entries + 1] = e end
+  local saved = theme.c
+  theme.c = theme.dark
+
+  local typeOptions = self:tokenTypeOptions()
+  if not util.find(typeOptions, function(o) return o.value == self.tokenPickerType end) then
+    self.tokenPickerType = "all"
+  end
+  -- The plain color token only shows under "All" -- it isn't one of the
+  -- game's defined tokens, so a specific type filter excludes it.
+  local entries = {}
+  if self.tokenPickerType == "all" then entries[#entries + 1] = { kind = "token", name = "Color Token" } end
+  for _, e in ipairs(self:definedTokenEntries()) do
+    if self.tokenPickerType == "all" or e.tokenType == self.tokenPickerType then entries[#entries + 1] = e end
+  end
+
   local x, y, w, h = panel.draw("tokenPicker", pw, ph, "Tokens", function() self.tokenPickerOpen = false end,
     #entries .. " token" .. (#entries == 1 and "" or "s"))
+  if #typeOptions > 1 then
+    self.tokenPickerType = ui.dropdown("tokenPicker:type", x + 16, y, math.min(220, w - 32), typeOptions,
+      self.tokenPickerType, { h = 40 })
+    y = y + 40 + 12
+    h = h - 40 - 12
+  end
   local gap = 12
   local cols = math.max(1, math.floor((w - 24 + gap) / (TOKEN_TILE + gap)))
   local tileW = (w - 24 - (cols - 1) * gap) / cols
@@ -2122,6 +2298,7 @@ function T:drawTokenPicker()
     end
   end
   ui.endScroll("tokenPicker:grid", 24 + math.ceil(#entries / cols) * (tileH + gap) - gap)
+  theme.c = saved
 end
 
 -- Space preview: big copy of exactly what's visible, centered in the half

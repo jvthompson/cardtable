@@ -99,13 +99,14 @@ function A.moveStack(state, rootInstanceId, x, y)
   return syncAttachedWidgets(bumped(state, { cards = cards }))
 end
 
-function A.rotateStack(state, rootInstanceId, clockwise)
+-- step is in quarter-turns: 1 for a normal 90° rotate, 0.5 for a 45° one.
+function A.rotateStack(state, rootInstanceId, clockwise, step)
   local stack = stacks.stackOf(state.cards, rootInstanceId)
   if #stack == 0 then return state end
   local ids = idSet(stack)
   local topId = stacks.topOf(stack).instanceId
   local nextZ = nextZIndex(state)
-  local delta = clockwise and 1 or -1
+  local delta = (clockwise and 1 or -1) * (step or 1)
   local cards = mapCards(state, function(c)
     if not ids[c.instanceId] or c.zone ~= "table" then return c end
     return copyWith(c, {
@@ -497,6 +498,30 @@ function A.setWidgetColors(state, instanceId, backgroundColor, textColor)
   return bumped(state, { widgets = widgets })
 end
 
+-- sizeOverride: nil clears it (back to the kind's default size), "native"
+-- renders at the token image's own pixel size, or a number for a square
+-- size override -- see V.widgetInstanceSize.
+function A.setWidgetSize(state, instanceId, sizeOverride)
+  local widgets = mapWidgets(state, function(w)
+    if w.instanceId ~= instanceId then return w end
+    return copyWith(w, { sizeOverride = sizeOverride == nil and NIL or sizeOverride })
+  end)
+  return bumped(state, { widgets = widgets })
+end
+
+-- Rotates a free token in place (Q/E on a hovered token, mirroring
+-- A.rotateStack for cards). step is in quarter-turns: 1 for 90°, 0.5 for
+-- 45°. Brings the token to the front, like rotating a card does.
+function A.rotateWidget(state, instanceId, clockwise, step)
+  local delta = (clockwise and 1 or -1) * (step or 1)
+  local nextZ = nextWidgetZIndex(state)
+  local widgets = mapWidgets(state, function(w)
+    if w.instanceId ~= instanceId then return w end
+    return copyWith(w, { rotationTurns = (w.rotationTurns or 0) + delta, zIndex = nextZ })
+  end)
+  return bumped(state, { widgets = widgets })
+end
+
 function A.duplicateWidget(state, sourceInstanceId, newInstanceId, x, y)
   local source
   for _, w in ipairs(state.widgets) do
@@ -597,6 +622,17 @@ function A.resetBag(state, instanceId, freshRemaining)
   local widgets = mapWidgets(state, function(w)
     if w.instanceId ~= instanceId then return w end
     return copyWith(w, { bagRemaining = freshRemaining, bagRevealed = {} })
+  end)
+  return bumped(state, { widgets = widgets })
+end
+
+-- Replaces the bag's pool outright, from its "Change Tokens" dialog
+-- (add/remove/retype entries, adjust quantities). Unlike A.resetBag, this
+-- leaves bagRevealed (tokens already drawn but not yet placed) untouched.
+function A.setBagRemaining(state, instanceId, bagRemaining)
+  local widgets = mapWidgets(state, function(w)
+    if w.instanceId ~= instanceId then return w end
+    return copyWith(w, { bagRemaining = bagRemaining })
   end)
   return bumped(state, { widgets = widgets })
 end

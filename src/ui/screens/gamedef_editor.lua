@@ -91,6 +91,17 @@ M.Editor = Editor
 
 local TAB_LABELS = { "General", "Zones", "Sets", "Cards" }
 
+-- Optional tabs appended to the bar, in this order, only while the game
+-- opts into them -- lazily built so a game that never turns one on never
+-- pays for it. Each needs a field on Editor (reset in Editor:load) and a
+-- module to require on first use.
+local OPTIONAL_TABS = {
+  { label = "Tokens", enabled = function(g) return g.usesTokens end,
+    field = "tokensTab", module = "src.ui.screens.gamedef.tokens_tab" },
+  { label = "Scenarios", enabled = function(g) return g.hasScenarios end,
+    field = "scenarioTab", module = "src.ui.screens.gamedef.scenario_tab" },
+}
+
 function Editor.new(folderPath, game)
   local self = setmetatable({ title = "Game Definition Editor", tab = 1 }, Editor)
   self:load(folderPath, game)
@@ -106,35 +117,38 @@ function Editor:load(folderPath, game)
     require("src.ui.screens.gamedef.sets_tab").new(self),
     require("src.ui.screens.gamedef.card_view_tab").new(self),
   }
-  self.scenarioTab = nil
+  for _, ot in ipairs(OPTIONAL_TABS) do self[ot.field] = nil end
   resolver.clearCache()
 end
 
--- "Scenarios" is only in the tab bar while the game opts into it.
+-- Optional tabs (Tokens, Scenarios, ...) are only in the bar while the
+-- game opts into them.
 function Editor:tabLabels()
-  if not self.game.hasScenarios then return TAB_LABELS end
   local labels = {}
   for i, l in ipairs(TAB_LABELS) do labels[i] = l end
-  labels[#labels + 1] = "Scenarios"
+  for _, ot in ipairs(OPTIONAL_TABS) do
+    if ot.enabled(self.game) then labels[#labels + 1] = ot.label end
+  end
   return labels
 end
 
--- Lazily built so a game that never turns on scenarios never pays for it.
-function Editor:scenarioTabOrNil()
-  if not self.game.hasScenarios then return nil end
-  if not self.scenarioTab then self.scenarioTab = require("src.ui.screens.gamedef.scenario_tab").new(self) end
-  return self.scenarioTab
-end
-
 -- The tab instance self.tab currently points to. Falls back to (and
--- reclamps self.tab onto) Cards if hasScenarios was turned off while the
--- Scenarios tab was selected -- e.g. opening a different game definition
--- without hasScenarios while tab 5 was still active.
+-- reclamps self.tab onto) Cards if the optional tab it pointed at was
+-- turned off -- e.g. opening a different game definition with it off
+-- while that tab was still active.
 function Editor:activeTab()
-  if self.tab == 5 then
-    local scenarioTab = self:scenarioTabOrNil()
-    if scenarioTab then return scenarioTab end
-    self.tab = 4
+  if self.tab > #TAB_LABELS then
+    local idx = self.tab - #TAB_LABELS
+    for _, ot in ipairs(OPTIONAL_TABS) do
+      if ot.enabled(self.game) then
+        idx = idx - 1
+        if idx == 0 then
+          if not self[ot.field] then self[ot.field] = require(ot.module).new(self) end
+          return self[ot.field]
+        end
+      end
+    end
+    self.tab = #TAB_LABELS
   end
   return self.tabs[self.tab]
 end
@@ -182,7 +196,10 @@ function Editor:update(dt)
   for _, t in ipairs(self.tabs) do
     if t.update then t:update(dt) end
   end
-  if self.scenarioTab and self.scenarioTab.update then self.scenarioTab:update(dt) end
+  for _, ot in ipairs(OPTIONAL_TABS) do
+    local t = self[ot.field]
+    if t and t.update then t:update(dt) end
+  end
 end
 
 function Editor:keypressed(key)

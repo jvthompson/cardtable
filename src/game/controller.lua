@@ -67,9 +67,11 @@ function Host:moveStack(rootId, x, y)
   if self:isOwnedOrUnowned(rootId) then self.session:moveStack(rootId, x, y) end
 end
 
-function Host:rotateStack(rootId, clockwise)
-  if self:isOwnedOrUnowned(rootId) then self.session:rotateStack(rootId, clockwise, self:acting()) end
+function Host:rotateStack(rootId, clockwise, step)
+  if self:isOwnedOrUnowned(rootId) then self.session:rotateStack(rootId, clockwise, self:acting(), step) end
 end
+
+function Host:rotateWidget(id, clockwise, step) self.session:rotateWidget(id, clockwise, step) end
 
 function Host:bringToFront(rootId)
   if self:isOwnedOrUnowned(rootId) then self.session:bringToFront(rootId) end
@@ -116,12 +118,14 @@ function Host:moveWidget(id, x, y) self.session:moveWidget(id, x, y) end
 function Host:setWidgetValue(id, value) self.session:setWidgetValue(id, value, self:acting()) end
 function Host:deleteWidget(id) self.session:deleteWidget(id) end
 function Host:setWidgetColors(id, bg, text) self.session:setWidgetColors(id, bg, text) end
+function Host:setWidgetSize(id, sizeOverride) self.session:setWidgetSize(id, sizeOverride) end
 function Host:duplicateWidget(srcId, newId, x, y) self.session:duplicateWidget(srcId, newId, x, y) end
 function Host:attachWidgetToCard(id, cardId, x, y) self.session:attachWidgetToCard(id, cardId, x, y, self:acting()) end
 function Host:drawBagToken(id) self.session:drawBagToken(id, self:acting()) end
 function Host:returnBagToken(id, slotId) self.session:returnBagToken(id, slotId, self:acting()) end
 function Host:placeBagTokenOnTable(id, slotId, newId, x, y) self.session:placeBagTokenOnTable(id, slotId, newId, x, y, self:acting()) end
 function Host:resetBag(id) self.session:resetBag(id, self:acting()) end
+function Host:setBagRemaining(id, bagRemaining) self.session:setBagRemaining(id, bagRemaining, self:acting()) end
 function Host:returnImageTokenToBag(bagId, tokenId) self.session:returnImageTokenToBag(bagId, tokenId, self:acting()) end
 function Host:generatePack(setId) self.session:generatePack(setId, self:acting()) end
 function Host:createCardFromLibrary(defId, x, y) self.session:createCardFromLibrary(defId, x, y, self:acting()) end
@@ -168,7 +172,13 @@ function Client:moveGroup(primaryId, passengerRootIds, x, y)
 end
 
 function Client:moveStack(rootId, x, y) self.send("requestMoveStack", p("rootInstanceId", rootId, "x", x, "y", y)) end
-function Client:rotateStack(rootId, clockwise) self.send("requestRotateStack", p("rootInstanceId", rootId, "clockwise", clockwise)) end
+function Client:rotateStack(rootId, clockwise, step)
+  self.send("requestRotateStack", p("rootInstanceId", rootId, "clockwise", clockwise, "step", step))
+end
+
+function Client:rotateWidget(id, clockwise, step)
+  self.send("requestRotateWidget", p("instanceId", id, "clockwise", clockwise, "step", step))
+end
 function Client:bringToFront(rootId) self.send("requestBringToFront", p("rootInstanceId", rootId)) end
 function Client:flipCard(id) self.send("requestFlip", p("instanceId", id)) end
 
@@ -214,6 +224,10 @@ function Client:setWidgetColors(id, bg, text)
   self.send("requestSetWidgetColors", p("instanceId", id, "backgroundColor", bg, "textColor", text))
 end
 
+function Client:setWidgetSize(id, sizeOverride)
+  self.send("requestSetWidgetSize", p("instanceId", id, "sizeOverride", sizeOverride == nil and json.null or sizeOverride))
+end
+
 function Client:duplicateWidget(srcId, newId, x, y)
   self.send("requestDuplicateWidget", p("sourceInstanceId", srcId, "newInstanceId", newId, "x", x, "y", y))
 end
@@ -230,6 +244,10 @@ function Client:placeBagTokenOnTable(id, slotId, newId, x, y)
 end
 
 function Client:resetBag(id) self.send("requestResetBag", p("instanceId", id)) end
+
+function Client:setBagRemaining(id, bagRemaining)
+  self.send("requestSetBagRemaining", p("instanceId", id, "bagRemaining", json.array(bagRemaining)))
+end
 
 function Client:returnImageTokenToBag(bagId, tokenId)
   self.send("requestReturnImageTokenToBag", p("bagInstanceId", bagId, "tokenInstanceId", tokenId))

@@ -4,7 +4,7 @@
 
 | Key | Effect |
 |-----|--------|
-| F11 | Toggle between the custom title bar and a standard window frame |
+| F6 | Toggle between the custom title bar and a standard window frame |
 
 ## Game table
 
@@ -41,13 +41,13 @@ Opponents' cards, piles and zones are read-only: you can hover them (for the Spa
 
 ### Keyboard
 
-Hotkeys act on the card under the cursor and fire once per key press (holding a key doesn't repeat). F, Q / E, X and Z on a selected card act on the whole selection.
+Hotkeys act on the card (or token, for Q / E) under the cursor and fire once per key press (holding a key doesn't repeat). F, Q / E, X and Z on a selected card act on the whole selection.
 
 | Key | Effect | Applies to |
 |-----|--------|------------|
 | Space (hold) | Large preview of the hovered card, showing exactly what you can see of it | Any card |
-| F | Flip face-up/face-down | Your table cards, your hand, a shared zone's top card (not your own zones' cards) |
-| Q / E | Rotate the card's stack 90° counter-clockwise / clockwise | Your cards on the table |
+| F | Flip face-up/face-down | Your table cards, your hand, a shared zone's top card, or your own zone's top card if the editor marked that zone Flippable |
+| Q / E | Rotate 90° counter-clockwise / clockwise (hold Ctrl for 45° steps) | Your cards on the table, or a hovered token |
 | X | Send to your discard zone | Your cards on the table, if the game defines a discard pile |
 | Z | Bring the card's stack to the front | Your cards on the table |
 | 1–9 | Draw that many cards into your hand (1 on a table card moves just that card to hand) | Your piles, your zones and shared zones |
@@ -55,6 +55,7 @@ Hotkeys act on the card under the cursor and fire once per key press (holding a 
 | Home or H | Reset camera pan and zoom | |
 | F1 | Show/hide the ownership border on every card | This session only |
 | F2 | Toggle zone/hand backgrounds between player-color tint and black | This session only |
+| F11 | Cycle the playmat area: none (default), one large shared area, one per player | This session only |
 | F12 | Cycle through the game's playmats | |
 | L | Open/close the Game Log (with a Save Log button) | |
 | C | Open/close the chat panel (server games only) | |

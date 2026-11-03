@@ -166,7 +166,9 @@ function E:handleMessage(clientId, msg)
     elseif t == "requestMoveStack" then
       if self:allowedCard(p.rootInstanceId, clientId) then s:moveStack(p.rootInstanceId, num(p.x), num(p.y)) end
     elseif t == "requestRotateStack" then
-      if self:allowedCard(p.rootInstanceId, clientId) then s:rotateStack(p.rootInstanceId, p.clockwise == true, clientId) end
+      if self:allowedCard(p.rootInstanceId, clientId) then
+        s:rotateStack(p.rootInstanceId, p.clockwise == true, clientId, num(p.step) or 1)
+      end
     elseif t == "requestBringToFront" then
       if self:allowedCard(p.rootInstanceId, clientId) then s:bringToFront(p.rootInstanceId) end
     elseif t == "requestFlip" then
@@ -211,6 +213,12 @@ function E:handleMessage(clientId, msg)
       if self:allowedDelete(p.instanceId, clientId) then s:deleteWidget(p.instanceId) end
     elseif t == "requestSetWidgetColors" then
       if self:allowedWidget(p.instanceId, clientId) then s:setWidgetColors(p.instanceId, num(p.backgroundColor), num(p.textColor)) end
+    elseif t == "requestSetWidgetSize" then
+      if self:allowedWidget(p.instanceId, clientId) then
+        s:setWidgetSize(p.instanceId, p.sizeOverride == "native" and "native" or num(p.sizeOverride))
+      end
+    elseif t == "requestRotateWidget" then
+      if self:allowedWidget(p.instanceId, clientId) then s:rotateWidget(p.instanceId, p.clockwise == true, num(p.step) or 1) end
     elseif t == "requestDuplicateWidget" then
       if self:movableWidget(p.sourceInstanceId, clientId) then s:duplicateWidget(p.sourceInstanceId, p.newInstanceId, num(p.x), num(p.y)) end
     elseif t == "requestAttachWidgetToCard" then
@@ -225,6 +233,14 @@ function E:handleMessage(clientId, msg)
       end
     elseif t == "requestResetBag" then
       if self:allowedWidget(p.instanceId, clientId) then s:resetBag(p.instanceId, clientId) end
+    elseif t == "requestSetBagRemaining" then
+      if self:allowedWidget(p.instanceId, clientId) then
+        local bagRemaining = {}
+        for _, f in ipairs(p.bagRemaining or {}) do
+          if type(f) == "string" then bagRemaining[#bagRemaining + 1] = f end
+        end
+        s:setBagRemaining(p.instanceId, bagRemaining, clientId)
+      end
     elseif t == "requestReturnImageTokenToBag" then
       if self:movableWidget(p.tokenInstanceId, clientId) and self:allowedWidget(p.bagInstanceId, clientId) then
         s:returnImageTokenToBag(p.bagInstanceId, p.tokenInstanceId, clientId)

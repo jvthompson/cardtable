@@ -239,6 +239,13 @@ function T:draw(x, y, w, h)
     cx, yy, cw, game.hasScenarios)
   yy = yy + scenariosH + common.GAP
 
+  local tokensH
+  game.usesTokens, tokensH = common.toggleRow("gs:usestokens", "Uses Tokens",
+    "Tokens are named, reusable images (investigator tokens, resource tokens, etc.) placed on the table or drawn "
+      .. "from a Token Bag. Turn this on to define them on the Tokens tab.",
+    cx, yy, cw, game.usesTokens)
+  yy = yy + tokensH + common.GAP
+
   local orientH
   game.sameOrientationForAll, orientH = common.toggleRow("gs:sameorient", "Same Table Orientation For Everyone",
     "Cooperative games: the shared table and any cards placed on it look the same for every player, regardless "

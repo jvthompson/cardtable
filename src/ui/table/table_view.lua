@@ -328,7 +328,7 @@ local function drawPlaymatRect(T, left, top, markW, markH)
   love.graphics.setLineWidth(1)
 end
 
--- Per-player markers (toggled with F6): one playmat per player, grouped into
+-- Per-player markers (one of the modes cycled with F11): one playmat per player, grouped into
 -- the same near/far rows used for hand bands, with 2x card-width padding
 -- between mats side by side and 0.5x card-width padding between the near
 -- and far rows.
@@ -360,7 +360,8 @@ local function drawPerPlayerMarkers(T)
 end
 
 local function drawCenterMarker(T)
-  if T.perPlayerPlaymats then
+  if T.playmatMode == "none" then return end
+  if T.playmatMode == "perPlayer" then
     drawPerPlayerMarkers(T)
     return
   end
@@ -543,8 +544,9 @@ local function tokenFace(T, w, cx, cy, size, alpha)
       -- token with a transparent background) and never crops a non-round image.
       local iw, ih = img:getDimensions()
       local s = math.min(size / iw, size / ih)
+      local angle = (w.rotationTurns or 0) * math.pi / 2
       love.graphics.setColor(1, 1, 1, alpha)
-      love.graphics.draw(img, cx - iw * s / 2, cy - ih * s / 2, 0, s, s)
+      love.graphics.draw(img, cx, cy, angle, s, s, iw / 2, ih / 2)
     else
       love.graphics.setColor(1, 1, 1, 0.3 * alpha)
       love.graphics.circle("line", cx, cy, size / 2)

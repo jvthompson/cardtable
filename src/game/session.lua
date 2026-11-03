@@ -315,13 +315,18 @@ function Session:moveGroup(primaryInstanceId, passengerRootIds, x, y, actingPlay
   self:notify()
 end
 
-function Session:rotateStack(rootInstanceId, clockwise, actingPlayerId)
-  self.state = A.rotateStack(self.state, rootInstanceId, clockwise)
+function Session:rotateStack(rootInstanceId, clockwise, actingPlayerId, step)
+  self.state = A.rotateStack(self.state, rootInstanceId, clockwise, step)
   local card = self:findCard(rootInstanceId)
   if card then
     local name = self:isPubliclyVisible(card) and self:titleOf(card) or nil
     self:log(actingPlayerId, name and ('rotated "' .. name .. '".') or "rotated a card.")
   end
+  self:notify()
+end
+
+function Session:rotateWidget(instanceId, clockwise, step)
+  self.state = A.rotateWidget(self.state, instanceId, clockwise, step)
   self:notify()
 end
 
@@ -635,6 +640,11 @@ function Session:setWidgetColors(instanceId, backgroundColor, textColor)
   self:notify()
 end
 
+function Session:setWidgetSize(instanceId, sizeOverride)
+  self.state = A.setWidgetSize(self.state, instanceId, sizeOverride)
+  self:notify()
+end
+
 function Session:duplicateWidget(sourceInstanceId, newInstanceId, x, y)
   self.state = A.duplicateWidget(self.state, sourceInstanceId, newInstanceId, x, y)
   self:notify()
@@ -675,6 +685,16 @@ function Session:resetBag(instanceId, actingPlayerId)
   local zone = widget.zoneId and self:zoneDefinition(widget.zoneId)
   self.state = A.resetBag(self.state, instanceId, expandBagEntries(zone and zone.bagEntries))
   self:log(actingPlayerId, "reset the token bag.")
+  self:notify()
+end
+
+-- From the bag's "Change Tokens" dialog: bagRemaining is already the
+-- flat, expanded pool the dialog built (one entry per quantity).
+function Session:setBagRemaining(instanceId, bagRemaining, actingPlayerId)
+  local widget = self:findWidget(instanceId)
+  if not widget or widget.kind ~= "tokenBag" then return end
+  self.state = A.setBagRemaining(self.state, instanceId, bagRemaining)
+  self:log(actingPlayerId, "changed the token bag's contents.")
   self:notify()
 end
 

@@ -10,6 +10,7 @@ local fs = require("src.data.fs")
 local ops = require("src.data.gamedef_ops")
 local resolver = require("src.data.image_resolver")
 local imageCache = require("src.data.image_cache")
+local models = require("src.core.models")
 local CR = require("src.ui.table.card_render")
 local fileDialog = require("src.platform.file_dialog")
 
@@ -221,69 +222,183 @@ function C.collapseHeader(id, title, x, y, w, h, expanded, trailing)
   return r.clicked == true
 end
 
--- Scans <folderPath>/tokens for image files (same filter table_screen.lua's
--- T:loadTokenImages uses at the table), sorted by name. Each entry:
--- { name, file, path } -- file is the bare name to store, path a resolved
--- one for display.
-function C.tokenFolderImages(folderPath)
-  if not folderPath then return {} end
-  local dir = fs.join(folderPath, "tokens")
-  local list = {}
+-- Scans <folderPath>/tokens/<subPath> (subPath, default "", relative to the
+-- tokens root, "/"-joined regardless of OS -- same convention as
+-- fs.listFilesRecursive's `rel`) for image files and subfolders, sorted by
+-- name. Returns (images, dirs):
+-- images: { name, file, path } -- file is the tokens-root-relative bare
+--   path to store (just the name at the root, "sub/name.png" one level
+--   down, etc.), path a resolved one for display.
+-- dirs: { name, rel } -- rel is the subPath to pass back in to descend.
+function C.tokenFolderImages(folderPath, subPath)
+  if not folderPath then return {}, {} end
+  subPath = subPath or ""
+  local dir = fs.join(folderPath, "tokens", subPath)
+  local function relOf(name) return subPath == "" and name or (subPath .. "/" .. name) end
+  local images, dirs = {}, {}
   for _, e in ipairs(fs.list(dir) or {}) do
-    local ext = fs.extension(e.name)
-    if not e.isDir and (ext == ".png" or ext == ".jpg" or ext == ".jpeg" or ext == ".webp") then
-      list[#list + 1] = { name = fs.stripExtension(e.name), file = e.name, path = fs.join(dir, e.name) }
+    if e.isDir then
+      dirs[#dirs + 1] = { name = e.name, rel = relOf(e.name) }
+    else
+      local ext = fs.extension(e.name)
+      if ext == ".png" or ext == ".jpg" or ext == ".jpeg" or ext == ".webp" then
+        images[#images + 1] = { name = fs.stripExtension(e.name), file = relOf(e.name), path = fs.join(dir, e.name) }
+      end
     end
   end
-  table.sort(list, function(a, b) return a.name:lower() < b.name:lower() end)
-  return list
+  table.sort(images, function(a, b) return a.name:lower() < b.name:lower() end)
+  table.sort(dirs, function(a, b) return a.name:lower() < b.name:lower() end)
+  return images, dirs
 end
 
--- A small thumbnail-grid popover to pick one bare file name out of
--- <folderPath>/tokens, plus an "Add Image..." tile that copies a new file
--- in via C.chooseImage. onResult(fileName) fires once, on pick or add
+-- A thumbnail-grid popover to pick one tokens-root-relative bare path out
+-- of <folderPath>/tokens, with subfolder navigation: an "Add Image..."
+-- tile, then (when not at the root) an "Up" tile, then any subfolders,
+-- then this folder's images. onResult(path) fires once, on pick or add
 -- (never on cancel).
 function C.chooseTokenImage(folderPath, onResult)
-  local images = C.tokenFolderImages(folderPath)
+  local subPath = ""
   local TILE, GAP, COLS = 72, 8, 4
   local GRID_H = 280
   overlays.dialog({
     title = "Choose Token Image", width = COLS * TILE + (COLS - 1) * GAP + 48,
     content = function(d, x, y, w)
+      local images, dirs = C.tokenFolderImages(folderPath, subPath)
       local addW = ui.buttonWidth("Add Image...", { icon = "add" })
       if ui.button("Add Image...", x, y, addW, 40, { variant = "outlined", icon = "add", id = "ctok:add" }) then
-        C.chooseImage(fs.join(folderPath, "tokens"), false, function(name)
+        C.chooseImage(fs.join(folderPath, "tokens", subPath), false, function(name)
           if name then
-            onResult(name)
+            onResult(subPath == "" and name or (subPath .. "/" .. name))
             d:close()
           end
         end)
       end
+      ui.text(subPath == "" and "tokens" or ("tokens/" .. subPath), x + addW + 12, y,
+        { h = 40, valign = "middle", color = theme.c.onSurfaceVariant, ellipsis = true, w = w - addW - 12 })
       local gy = y + 40 + 12
-      if #images == 0 then
-        ui.text("No images in this game's tokens folder yet.", x, gy,
+
+      -- One grid: an "Up" tile (if not at the root), subfolders, then
+      -- images, in that order, so navigation always comes first.
+      local tiles = {}
+      if subPath ~= "" then tiles[#tiles + 1] = { kind = "up" } end
+      for _, dr in ipairs(dirs) do tiles[#tiles + 1] = { kind = "dir", name = dr.name, rel = dr.rel } end
+      for _, img in ipairs(images) do tiles[#tiles + 1] = { kind = "image", img = img } end
+
+      if #tiles == 0 then
+        ui.text("No images in this folder yet.", x, gy,
           { w = w, h = GRID_H, align = "center", valign = "middle", color = theme.c.onSurfaceVariant })
         return 40 + 12 + GRID_H
       end
       local off = ui.beginScroll("ctok:grid", x, gy, w, GRID_H)
       local rowH = TILE + 20 + GAP
-      local picked
-      for i, img in ipairs(images) do
+      local picked, enter, up
+      for i, tile in ipairs(tiles) do
         local col, row = (i - 1) % COLS, math.floor((i - 1) / COLS)
         local tx, ty = x + col * (TILE + GAP), gy - off + row * rowH
         if ty + TILE + 20 > gy and ty < gy + GRID_H then
-          local r = ui.region("ctok:img:" .. i, tx, ty, TILE, TILE, { cursor = "hand" })
-          C.imagePreviewBox(img.path, tx, ty, TILE, TILE)
-          ui.text(img.name, tx, ty + TILE + 2, { size = 11, w = TILE, align = "center", maxLines = 1 })
-          if r.clicked then picked = img.file end
+          local r = ui.region("ctok:tile:" .. i, tx, ty, TILE, TILE, { cursor = "hand" })
+          if tile.kind == "up" then
+            ui.rect("fill", tx, ty, TILE, TILE, 6, theme.c.surfaceContainerHighest)
+            ui.iconCentered("arrow_upward", tx, ty, TILE, TILE, 28, theme.c.onSurfaceVariant)
+            ui.text("Up", tx, ty + TILE + 2, { size = 11, w = TILE, align = "center", maxLines = 1 })
+            if r.clicked then up = true end
+          elseif tile.kind == "dir" then
+            ui.rect("fill", tx, ty, TILE, TILE, 6, theme.c.surfaceContainerHighest)
+            ui.iconCentered("folder", tx, ty, TILE, TILE, 28, theme.c.onSurfaceVariant)
+            ui.text(tile.name, tx, ty + TILE + 2, { size = 11, w = TILE, align = "center", maxLines = 1 })
+            if r.clicked then enter = tile.rel end
+          else
+            C.imagePreviewBox(tile.img.path, tx, ty, TILE, TILE)
+            ui.text(tile.img.name, tx, ty + TILE + 2, { size = 11, w = TILE, align = "center", maxLines = 1 })
+            if r.clicked then picked = tile.img.file end
+          end
         end
       end
-      ui.endScroll("ctok:grid", math.ceil(#images / COLS) * rowH)
-      if picked then
+      ui.endScroll("ctok:grid", math.ceil(#tiles / COLS) * rowH)
+      if up then
+        local parent = fs.dirname(subPath)
+        subPath = parent == "." and "" or parent
+      elseif enter then
+        subPath = enter
+      elseif picked then
         onResult(picked)
         d:close()
       end
       return 40 + 12 + GRID_H
+    end,
+    actions = { { label = "Cancel", variant = "text" } },
+  })
+end
+
+-- The game's defined tokens, resolved for display: { name, file, path,
+-- tokenType }. Empty when the game doesn't use tokens (or has none
+-- defined) -- callers fall back to C.tokenFolderImages/C.chooseTokenImage
+-- in that case, same as the Token Bag's Contents list already does.
+function C.gameTokenEntries(game, folderPath)
+  if not folderPath or not game.usesTokens then return {} end
+  local list = {}
+  for _, tok in ipairs(game.tokens) do
+    list[#list + 1] = { name = models.TokenDefinition.displayName(tok), file = tok.imagePath,
+      path = tok.imagePath and fs.join(folderPath, "tokens", tok.imagePath), tokenType = models.TokenDefinition.typeOf(tok) }
+  end
+  return list
+end
+
+-- A thumbnail-grid popover to pick one token (by its tokens-root-relative
+-- bare image path) out of the game's defined tokens, with a type filter
+-- dropdown -- the editor-side equivalent of the table's Token Widget
+-- picker. Falls back to C.chooseTokenImage's flat folder browsing when
+-- the game has no tokens defined. onResult(path) fires once, on pick
+-- (never on cancel).
+function C.chooseToken(game, folderPath, onResult)
+  local entries = C.gameTokenEntries(game, folderPath)
+  if #entries == 0 then
+    C.chooseTokenImage(folderPath, onResult)
+    return
+  end
+  local typeOptions = { { value = "all", label = "All" } }
+  for _, ty in ipairs(models.GameDefinition.tokenTypes(game)) do
+    typeOptions[#typeOptions + 1] = { value = ty, label = ty }
+  end
+  local selectedType = "all"
+  local TILE, GAP, COLS = 72, 8, 4
+  local GRID_H = 280
+  overlays.dialog({
+    title = "Choose Token", width = COLS * TILE + (COLS - 1) * GAP + 48,
+    content = function(d, x, y, w)
+      local gy = y
+      if #typeOptions > 1 then
+        selectedType = ui.dropdown("ctoken:type", x, y, math.min(220, w), typeOptions, selectedType, { h = 40 })
+        gy = y + 40 + 12
+      end
+      local filtered = {}
+      for _, e in ipairs(entries) do
+        if selectedType == "all" or e.tokenType == selectedType then filtered[#filtered + 1] = e end
+      end
+      if #filtered == 0 then
+        ui.text("No tokens of this type.", x, gy,
+          { w = w, h = GRID_H, align = "center", valign = "middle", color = theme.c.onSurfaceVariant })
+        return (gy - y) + GRID_H
+      end
+      local off = ui.beginScroll("ctoken:grid", x, gy, w, GRID_H)
+      local rowH = TILE + 20 + GAP
+      local picked
+      for i, e in ipairs(filtered) do
+        local col, row = (i - 1) % COLS, math.floor((i - 1) / COLS)
+        local tx, ty = x + col * (TILE + GAP), gy - off + row * rowH
+        if ty + TILE + 20 > gy and ty < gy + GRID_H then
+          local r = ui.region("ctoken:img:" .. i, tx, ty, TILE, TILE, { cursor = "hand" })
+          C.imagePreviewBox(e.path, tx, ty, TILE, TILE)
+          ui.text(e.name, tx, ty + TILE + 2, { size = 11, w = TILE, align = "center", maxLines = 1 })
+          if r.clicked then picked = e.file end
+        end
+      end
+      ui.endScroll("ctoken:grid", math.ceil(#filtered / COLS) * rowH)
+      if picked then
+        onResult(picked)
+        d:close()
+      end
+      return (gy - y) + GRID_H
     end,
     actions = { { label = "Cancel", variant = "text" } },
   })

@@ -198,6 +198,39 @@ function CardBackDefinition.toJson(b)
 end
 
 ---------------------------------------------------------------------------
+-- TokenDefinition
+---------------------------------------------------------------------------
+
+local TokenDefinition = {}
+M.TokenDefinition = TokenDefinition
+
+function TokenDefinition.new(f) return { id = f.id, name = f.name, imagePath = f.imagePath } end
+
+function TokenDefinition.fromJson(t)
+  return TokenDefinition.new({
+    id = requireField(t, "id", "TokenDefinition"),
+    name = requireField(t, "name", "TokenDefinition"),
+    imagePath = t.imagePath,
+  })
+end
+
+function TokenDefinition.toJson(tok) return obj("id", tok.id, "name", tok.name, "imagePath", tok.imagePath) end
+
+-- A name may carry a "|Type" suffix, e.g. "Daisy Walker|Investigator" --
+-- displayName strips it, typeOf returns just the type (or nil without one).
+function TokenDefinition.displayName(tok)
+  local bar = tok.name:find("|", 1, true)
+  return bar and util.trim(tok.name:sub(1, bar - 1)) or tok.name
+end
+
+function TokenDefinition.typeOf(tok)
+  local bar = tok.name:find("|", 1, true)
+  if not bar then return nil end
+  local ty = util.trim(tok.name:sub(bar + 1))
+  return ty ~= "" and ty or nil
+end
+
+---------------------------------------------------------------------------
 -- PackSetting / GameSet / TagGroup
 ---------------------------------------------------------------------------
 
@@ -361,6 +394,7 @@ function ZoneDefinition.new(f)
     shuffleable = default(f.shuffleable, true),
     visibleToAll = f.visibleToAll or false,
     isDiscardPile = f.isDiscardPile or false,
+    flippable = f.flippable or false,
     autoShuffle = f.autoShuffle or false,
     standardDeck = f.standardDeck or false,
     deckName = f.deckName,
@@ -391,6 +425,7 @@ function ZoneDefinition.fromJson(t)
     shuffleable = default(t.shuffleable, true),
     visibleToAll = t.visibleToAll == true,
     isDiscardPile = t.isDiscardPile == true,
+    flippable = t.flippable == true,
     autoShuffle = t.autoShuffle == true,
     standardDeck = t.standardDeck == true,
     deckName = t.deckName,
@@ -421,6 +456,7 @@ function ZoneDefinition.toJson(z)
     "shuffleable", unlessDefault(z.shuffleable, true),
     "visibleToAll", z.visibleToAll or nil,
     "isDiscardPile", z.isDiscardPile or nil,
+    "flippable", z.flippable or nil,
     "autoShuffle", z.autoShuffle or nil,
     "standardDeck", z.standardDeck or nil,
     "deckName", z.deckName,
@@ -522,6 +558,8 @@ function GameDefinition.new(f)
     hasScenarios = f.hasScenarios or false,
     scenarios = f.scenarios or {},
     scenarioCardBackId = f.scenarioCardBackId,
+    usesTokens = f.usesTokens or false,
+    tokens = f.tokens or {},
     sameOrientationForAll = f.sameOrientationForAll or false,
     folderPath = f.folderPath, -- local only, never serialized
   }
@@ -538,6 +576,20 @@ function GameDefinition.deckTypes(g)
     if not seen[z.deckType] then
       seen[z.deckType] = true
       out[#out + 1] = z.deckType
+    end
+  end
+  return out
+end
+
+-- Ordered, de-duplicated list of token types, parsed from each token's
+-- name via TokenDefinition.typeOf (nameless/untyped tokens are skipped).
+function GameDefinition.tokenTypes(g)
+  local seen, out = {}, {}
+  for _, tok in ipairs(g.tokens) do
+    local ty = TokenDefinition.typeOf(tok)
+    if ty and not seen[ty] then
+      seen[ty] = true
+      out[#out + 1] = ty
     end
   end
   return out
@@ -615,6 +667,8 @@ function GameDefinition.fromJson(t)
     hasScenarios = t.hasScenarios == true,
     scenarios = mapJson(t.scenarios, Scenario.fromJson),
     scenarioCardBackId = t.scenarioCardBackId,
+    usesTokens = t.usesTokens == true,
+    tokens = mapJson(t.tokens, TokenDefinition.fromJson),
     sameOrientationForAll = t.sameOrientationForAll == true,
   })
 end
@@ -646,6 +700,8 @@ function GameDefinition.toJson(g)
   if g.hasScenarios then o.hasScenarios = true end
   o.scenarios = nonEmptyList(g.scenarios, Scenario.toJson)
   if g.scenarioCardBackId then o.scenarioCardBackId = g.scenarioCardBackId end
+  if g.usesTokens then o.usesTokens = true end
+  o.tokens = nonEmptyList(g.tokens, TokenDefinition.toJson)
   if g.sameOrientationForAll then o.sameOrientationForAll = true end
   return o
 end
@@ -780,6 +836,7 @@ function BoardWidgetInstance.new(f)
     zoneId = f.zoneId,
     imagePath = f.imagePath,
     sizeOverride = f.sizeOverride,
+    rotationTurns = f.rotationTurns or 0,
     bagRemaining = f.bagRemaining or {},
     bagRevealed = f.bagRevealed or {},
   }
@@ -805,6 +862,7 @@ function BoardWidgetInstance.fromJson(t)
     zoneId = t.zoneId,
     imagePath = t.imagePath,
     sizeOverride = t.sizeOverride,
+    rotationTurns = t.rotationTurns,
     bagRemaining = stringList(t.bagRemaining),
     bagRevealed = mapJson(t.bagRevealed, RevealedToken.fromJson),
   })
@@ -830,6 +888,7 @@ function BoardWidgetInstance.toJson(w)
     "zoneId", w.zoneId,
     "imagePath", w.imagePath,
     "sizeOverride", w.sizeOverride,
+    "rotationTurns", unlessDefault(w.rotationTurns, 0),
     "bagRemaining", nonEmptyList(w.bagRemaining),
     "bagRevealed", nonEmptyList(w.bagRevealed, RevealedToken.toJson)
   )

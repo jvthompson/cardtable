@@ -290,24 +290,49 @@ local function drawScenarioTokenBagFields(sub, zone, k, x, y, w)
   yy = yy + th + 12
 
   yy = yy + common.groupLabel("Contents", x, yy, w) + 4
-  local images = common.tokenFolderImages(folderPath)
-  local options = util.map(images, function(img) return { value = img.file, label = img.name } end)
+  local game = sub.editor.game
+  local images
+  if game.usesTokens and #game.tokens > 0 then
+    images = util.map(game.tokens, function(tok)
+      return { name = models.TokenDefinition.displayName(tok), file = tok.imagePath }
+    end)
+  else
+    images = common.tokenFolderImages(folderPath)
+  end
+  local function nameFor(file)
+    for _, img in ipairs(images) do
+      if img.file == file then return img.name end
+    end
+    return file
+  end
   local remove
+  local ROW_H = 48
   for i, entry in ipairs(zone.bagEntries) do
     local ek = k .. ":bagentry" .. i
     local dw = w - 8 - common.stepperWidth
-    local picked = ui.dropdown(ek .. ":img", x, yy + 4, dw, options, entry.definitionId,
-      { h = 40, placeholder = "(choose image)", size = 14 })
-    if picked ~= entry.definitionId then zone.bagEntries[i] = models.DeckEntry.new(picked, entry.quantity) end
+    local r = ui.region(ek .. ":pick", x, yy, dw, ROW_H, { cursor = "hand", tooltip = "Choose Token..." })
+    if r.hovered then ui.rect("fill", x, yy, dw, ROW_H, 6, theme.alpha(c.onSurface, 0.05)) end
+    common.imagePreviewBox(entry.definitionId and fs.join(folderPath, "tokens", entry.definitionId),
+      x + 4, yy + 4, ROW_H - 8, ROW_H - 8)
+    ui.text(entry.definitionId and nameFor(entry.definitionId) or "(choose token)", x + ROW_H + 8, yy,
+      { w = dw - ROW_H - 12, h = ROW_H, valign = "middle", ellipsis = true,
+        color = entry.definitionId and c.onSurface or c.onSurfaceVariant })
+    if r.clicked then
+      common.chooseToken(game, folderPath, function(file)
+        zone.bagEntries[i] = models.DeckEntry.new(file, entry.quantity)
+      end)
+    end
     local q, removed = common.stepper(ek, x + w, yy + 4, entry.quantity, { removeTooltip = "Remove Entry" })
     if q ~= entry.quantity then zone.bagEntries[i] = models.DeckEntry.new(zone.bagEntries[i].definitionId, q) end
     if removed then remove = i end
-    yy = yy + 48
+    yy = yy + ROW_H
   end
   if remove then table.remove(zone.bagEntries, remove) end
   if ui.button("Add Entry", x - 8, yy, nil, 40, { variant = "text", icon = "add", id = k .. ":addbagentry",
     disabled = #images == 0 }) then
-    zone.bagEntries[#zone.bagEntries + 1] = models.DeckEntry.new(images[1].file, 1)
+    common.chooseToken(game, folderPath, function(file)
+      zone.bagEntries[#zone.bagEntries + 1] = models.DeckEntry.new(file, 1)
+    end)
   end
   yy = yy + 40
   return yy - y
