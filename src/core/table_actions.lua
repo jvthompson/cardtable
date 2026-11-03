@@ -531,7 +531,7 @@ function A.duplicateWidget(state, sourceInstanceId, newInstanceId, x, y)
   return appendWidget(state, models.BoardWidgetInstance.new({
     instanceId = newInstanceId, kind = source.kind, x = x, y = y, zIndex = nextWidgetZIndex(state),
     value = source.value, backgroundColor = source.backgroundColor, textColor = source.textColor,
-    imagePath = source.imagePath,
+    imagePath = source.imagePath, sizeOverride = source.sizeOverride, rotationTurns = source.rotationTurns,
   }))
 end
 
