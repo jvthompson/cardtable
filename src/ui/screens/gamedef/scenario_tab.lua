@@ -28,6 +28,12 @@ local keyOf = common.keyOf
 local function isInteger(s) return s:match("^%-?%d+$") ~= nil end
 local function ctrlDown() return love.keyboard.isDown("lctrl", "rctrl") end
 
+-- A card's authored "quantity" extra field (how many physical copies
+-- exist), parsed as a number; nil when absent/non-numeric, meaning no cap.
+local function ownedQuantity(def)
+  return def.extraFields and tonumber(def.extraFields.quantity)
+end
+
 local T = {}
 T.__index = T
 
@@ -554,17 +560,28 @@ end
 
 function T:addDeckCopy(scenario, deckType, defId)
   local sd = models.Scenario.subdeck(scenario, deckType)
+  local existing
+  if sd then
+    for _, e in ipairs(sd.entries) do
+      if e.definitionId == defId then existing = e end
+    end
+  end
+  local def = models.GameDefinition.cardById(self.editor.game, defId)
+  local limit = def and ownedQuantity(def)
+  if limit and (existing and existing.quantity or 0) >= limit then
+    overlays.toast('Only ' .. limit .. ' cop' .. (limit == 1 and 'y' or 'ies')
+      .. ' of "' .. (def and def.cardTitle or "this card") .. '" available.')
+    return
+  end
   if not sd then
     sd = models.SubDeck.new(deckType, {})
     scenario.decks[#scenario.decks + 1] = sd
   end
-  for _, e in ipairs(sd.entries) do
-    if e.definitionId == defId then
-      e.quantity = e.quantity + 1
-      return
-    end
+  if existing then
+    existing.quantity = existing.quantity + 1
+  else
+    sd.entries[#sd.entries + 1] = models.DeckEntry.new(defId, 1)
   end
-  sd.entries[#sd.entries + 1] = models.DeckEntry.new(defId, 1)
 end
 
 function T:removeDeckCopy(scenario, deckType, defId)
@@ -615,6 +632,8 @@ function T:drawDeckPool(scenario, deckType, x, y, w, h)
       end
     end
     if n > 0 then CR.drawCountBadge(cx + poolGrid.PW / 2 - 12, ty + 12, n, 1) end
+    local limit = ownedQuantity(def)
+    if limit then CR.drawCountBadge(cx - poolGrid.PW / 2 + 12, ty + 12, limit, 1) end
     ui.text(def.cardTitle, tx, ty + poolGrid.PH + 6, { size = 11, w = tileW, align = "center", maxLines = poolGrid.NAME_LINES })
     if r.hovered then self.hoveredId = def.id end
     if r.clicked then self:addDeckCopy(scenario, deckType, def.id) end
