@@ -10,8 +10,8 @@ local models = require("src.core.models")
 local util = require("src.core.util")
 local sound = require("src.game.sound")
 local CR = require("src.ui.table.card_render")
-local fs = require("src.data.fs")
 local resolver = require("src.data.image_resolver")
+local deckLibrary = require("src.data.deck_library")
 local common = require("src.ui.screens.server.common")
 local GamePicker = require("src.ui.screens.game_picker")
 
@@ -263,7 +263,7 @@ function S:drawDecks(x, y, w, h)
     return
   end
 
-  local decksFolder = fs.join(game.folderPath, "decks")
+  local decksFolder = deckLibrary.builtInDecksDir(game.folderPath)
   local tiles = {}
   for _, starter in ipairs(starters) do
     tiles[#tiles + 1] = {

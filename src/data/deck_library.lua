@@ -1,5 +1,6 @@
 -- Port of lib/data/deck_library_loader.dart. A deck's display name is its
--- file name without ".json"; built-in decks ship inside <game>/decks/.
+-- file name without ".json"; built-in decks ship inside <game>/decks/, or
+-- <game>/_decks/ if that exists too (see D.builtInDecksDir).
 local json = require("lib.json")
 local fs = require("src.data.fs")
 local models = require("src.core.models")
@@ -39,9 +40,16 @@ function D.loadDecksForGame(rootPath, game)
   return scanDirectory(D.gameDeckDir(rootPath, game), game, false)
 end
 
+-- A game's built-in decks folder: "_decks" when present, else "decks".
+function D.builtInDecksDir(folderPath)
+  local preferred = fs.join(folderPath, "_decks")
+  if fs.isDir(preferred) then return preferred end
+  return fs.join(folderPath, "decks")
+end
+
 function D.loadBuiltInDecksForGame(game)
   if game.folderPath == nil then return { entries = {}, incompatible = {} } end
-  return scanDirectory(fs.join(game.folderPath, "decks"), game, true)
+  return scanDirectory(D.builtInDecksDir(game.folderPath), game, true)
 end
 
 -- The player's own decks first, then the game's built-in ones.
