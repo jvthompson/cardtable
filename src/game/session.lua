@@ -330,6 +330,11 @@ function Session:rotateWidget(instanceId, clockwise, step)
   self:notify()
 end
 
+function Session:flipWidget(instanceId)
+  self.state = A.flipWidget(self.state, instanceId)
+  self:notify()
+end
+
 function Session:bringToFront(rootInstanceId)
   self.state = A.bringToFront(self.state, rootInstanceId)
   self:notify()

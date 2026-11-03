@@ -522,6 +522,17 @@ function A.rotateWidget(state, instanceId, clockwise, step)
   return bumped(state, { widgets = widgets })
 end
 
+-- Flips a free token in place (F on a hovered token, mirroring A.flipCard
+-- for cards). Brings it to the front, like flipping a card does.
+function A.flipWidget(state, instanceId)
+  local nextZ = nextWidgetZIndex(state)
+  local widgets = mapWidgets(state, function(w)
+    if w.instanceId ~= instanceId then return w end
+    return copyWith(w, { faceUp = not w.faceUp, zIndex = nextZ })
+  end)
+  return bumped(state, { widgets = widgets })
+end
+
 function A.duplicateWidget(state, sourceInstanceId, newInstanceId, x, y)
   local source
   for _, w in ipairs(state.widgets) do
@@ -532,6 +543,7 @@ function A.duplicateWidget(state, sourceInstanceId, newInstanceId, x, y)
     instanceId = newInstanceId, kind = source.kind, x = x, y = y, zIndex = nextWidgetZIndex(state),
     value = source.value, backgroundColor = source.backgroundColor, textColor = source.textColor,
     imagePath = source.imagePath, sizeOverride = source.sizeOverride, rotationTurns = source.rotationTurns,
+    faceUp = source.faceUp,
   }))
 end
 

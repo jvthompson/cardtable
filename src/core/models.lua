@@ -537,7 +537,7 @@ M.Scenario = Scenario
 
 function Scenario.new(f)
   return { id = f.id, name = f.name, zones = f.zones or {}, placements = f.placements or {},
-    tokenPlacements = f.tokenPlacements or {}, decks = f.decks or {} }
+    tokenPlacements = f.tokenPlacements or {}, decks = f.decks or {}, guidePath = f.guidePath }
 end
 
 function Scenario.fromJson(t)
@@ -548,6 +548,7 @@ function Scenario.fromJson(t)
     placements = mapJson(t.placements, ScenarioPlacement.fromJson),
     tokenPlacements = mapJson(t.tokenPlacements, ScenarioTokenPlacement.fromJson),
     decks = mapJson(t.decks, SubDeck.fromJson),
+    guidePath = t.guidePath,
   })
 end
 
@@ -555,7 +556,7 @@ function Scenario.toJson(s)
   return obj("id", s.id, "name", s.name, "zones", nonEmptyList(s.zones, ZoneDefinition.toJson),
     "placements", nonEmptyList(s.placements, ScenarioPlacement.toJson),
     "tokenPlacements", nonEmptyList(s.tokenPlacements, ScenarioTokenPlacement.toJson),
-    "decks", nonEmptyList(s.decks, SubDeck.toJson))
+    "decks", nonEmptyList(s.decks, SubDeck.toJson), "guidePath", s.guidePath)
 end
 
 function Scenario.subdeck(s, name)
@@ -870,6 +871,7 @@ function BoardWidgetInstance.new(f)
     imagePath = f.imagePath,
     sizeOverride = f.sizeOverride,
     rotationTurns = f.rotationTurns or 0,
+    faceUp = default(f.faceUp, true),
     bagRemaining = f.bagRemaining or {},
     bagRevealed = f.bagRevealed or {},
   }
@@ -896,6 +898,7 @@ function BoardWidgetInstance.fromJson(t)
     imagePath = t.imagePath,
     sizeOverride = t.sizeOverride,
     rotationTurns = t.rotationTurns,
+    faceUp = t.faceUp,
     bagRemaining = stringList(t.bagRemaining),
     bagRevealed = mapJson(t.bagRevealed, RevealedToken.fromJson),
   })
@@ -922,6 +925,7 @@ function BoardWidgetInstance.toJson(w)
     "imagePath", w.imagePath,
     "sizeOverride", w.sizeOverride,
     "rotationTurns", unlessDefault(w.rotationTurns, 0),
+    "faceUp", unlessDefault(w.faceUp, true),
     "bagRemaining", nonEmptyList(w.bagRemaining),
     "bagRevealed", nonEmptyList(w.bagRevealed, RevealedToken.toJson)
   )

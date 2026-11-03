@@ -1,9 +1,12 @@
--- Near-fullscreen viewer for a game's rulebook: either rulebook.md (with a
--- table-of-contents sidebar built from the document's headings) or, when
--- present, rulebook.pdf instead (continuous-scroll page images, no ToC --
--- the PDF carries its own structure). A PDF takes precedence over a
--- Markdown file when a folder has both. Shared by the table screen and the
--- deck editor (opened via Ctrl+R in both).
+-- Near-fullscreen viewer for a game's rulebook, and (while a scenario with
+-- one loaded) its Scenario Guide -- either document can be Markdown (with
+-- a table-of-contents sidebar built from its headings) or, when present,
+-- PDF instead (continuous-scroll page images, no ToC -- the PDF carries
+-- its own structure). PDF takes precedence over Markdown for the
+-- rulebook's fixed filename pair; a guide is a single assigned file, so
+-- its own extension decides. Shared by the table screen and the deck
+-- editor (opened via Ctrl+R in both) -- the deck editor never has a
+-- scenario loaded, so it only ever sees the rulebook.
 local ui = require("src.ui.kit.ui")
 local theme = require("src.ui.kit.theme")
 local overlays = require("src.ui.kit.overlays")
@@ -46,15 +49,16 @@ local SCROLL_THUMB_OPTS = { thumbAlpha = 0.6, thumbAlphaHover = 0.85 }
 -- drastic resize after opening can look slightly soft; acceptable for v1.
 local PDF_RENDER_WIDTH = 1600
 
+local DOC_OPTIONS = { { value = "rulebook", label = "Rulebook" }, { value = "guide", label = "Scenario Guide" } }
+local DOC_TOGGLE_H = 36
+local DOC_TITLES = { rulebook = "Rulebook", guide = "Scenario Guide" }
+
 function RV.new(game)
   local self = setmetatable({}, RV)
   self.game = game
   self.open = false
-  self.loaded = false
-  self.restoreDone = false
-  self.pendingRestore = nil
-  self.scrollId = "rulebook:body:" .. tostring(game.id)
-  self.tocScrollId = "rulebook:toc:" .. tostring(game.id)
+  self.activeDoc = "rulebook"
+  self.docs = {} -- "rulebook" / "guide" -> { path, kind, hasContent, blocks, pdfCache, pdfLayout, scrollId, scrollKey, pendingRestore }
   self.tocVisible = true
   return self
 end
@@ -74,27 +78,28 @@ local function computePdfLayout(pointSizes, docW, gap)
 end
 RV._computePdfLayout = computePdfLayout
 
-function RV:ensureLoaded()
-  if self.loaded then return end
-  self.loaded = true
-  local folder = self.game.folderPath
-  local pdfPath = folder and fs.join(folder, "rulebook.pdf")
-  local mdPath = folder and fs.join(folder, "rulebook.md")
-  if pdfPath and fs.isFile(pdfPath) then
-    self.kind = "pdf"
-    self.hasContent = true
-    self.pdfCache = pdfDocCache.new(pdfPath)
-    return
-  end
-  self.kind = "md"
-  local data = mdPath and fs.readFile(mdPath)
-  self.hasContent = data ~= nil
-  self.blocks = data and controls.parse(data) or {}
-  if self.hasContent then self:loadImages() end
+-- The rulebook's fixed filename pair, at the game's own root folder: PDF
+-- wins when both exist.
+local function resolveRulebookPath(folder)
+  if not folder then return nil end
+  local pdfPath = fs.join(folder, "rulebook.pdf")
+  if fs.isFile(pdfPath) then return pdfPath, "pdf" end
+  local mdPath = fs.join(folder, "rulebook.md")
+  if fs.isFile(mdPath) then return mdPath, "md" end
+  return nil
 end
 
--- Resolves every `![alt](path)` block's path relative to the game's folder
--- and decodes it into a drawable Image, synchronously, once, right here -
+-- A scenario's single assigned guide file, under the game's "_scenarios"
+-- folder; its own extension says whether it's a PDF or Markdown.
+local function resolveGuidePath(folder, guidePath)
+  if not folder or not guidePath then return nil end
+  local path = fs.join(folder, "_scenarios", guidePath)
+  if not fs.isFile(path) then return nil end
+  return path, (fs.extension(path) == ".pdf" and "pdf" or "md")
+end
+
+-- Resolves every `![alt](path)` block's path relative to baseFolder and
+-- decodes it into a drawable Image, synchronously, once, right here --
 -- simplest option, and fine for a rulebook's modest handful of diagrams.
 --
 -- If rulebooks grow to carry many/large images and this starts to visibly
@@ -106,10 +111,10 @@ end
 -- returns the Image once ready, nil while still pending/loading, so the
 -- block just redraws blank-then-filled-in over a frame or two) - a bit
 -- more moving parts, not needed unless this sync version proves slow.
-function RV:loadImages()
-  for _, b in ipairs(self.blocks) do
-    if b.kind == "image" and self.game.folderPath then
-      local data = imageUtils.decodeFile(fs.join(self.game.folderPath, b.path))
+local function loadImages(blocks, baseFolder)
+  for _, b in ipairs(blocks) do
+    if b.kind == "image" and baseFolder then
+      local data = imageUtils.decodeFile(fs.join(baseFolder, b.path))
       if data then
         local ok, img = pcall(love.graphics.newImage, data)
         if ok then b.image = img end
@@ -118,31 +123,79 @@ function RV:loadImages()
   end
 end
 
+-- Ensures self.docs[key] reflects `path`/`kind` (either may be nil, meaning
+-- that document isn't available right now): a no-op if that slot already
+-- has this exact path (so re-deriving the same guide path every frame, or
+-- switching tabs back and forth, never reloads); otherwise (re)builds it
+-- and restores its own previously-saved scroll position via scrollKey.
+-- baseFolder is where that document's own relative image references (if
+-- Markdown) resolve against.
+function RV:ensureDoc(key, path, kind, baseFolder, scrollKey)
+  local d = self.docs[key]
+  if d and d.path == path then return d end
+  d = { path = path, kind = kind, scrollId = "rulebook:" .. key .. ":" .. tostring(self.game.id), scrollKey = scrollKey }
+  self.docs[key] = d
+  if not path then
+    d.hasContent = false
+    return d
+  end
+  if kind == "pdf" then
+    d.hasContent = true
+    d.pdfCache = pdfDocCache.new(path)
+  else
+    local data = fs.readFile(path)
+    d.hasContent = data ~= nil
+    d.blocks = data and controls.parse(data) or {}
+    if d.hasContent then loadImages(d.blocks, baseFolder) end
+  end
+  local saved = rulebookSettings.getScroll(scrollKey)
+  -- Pre-emptive: also overwrites any stale in-memory scrollState left by an
+  -- earlier screen instance that happened to reuse this same id string this
+  -- session. (beginScroll would otherwise clamp this back to 0 on a truly
+  -- first-ever open, since it has no contentH yet - the real fix is the
+  -- pendingRestore re-apply after this frame's endScroll (Markdown), or
+  -- once PDF layout is known (PDF), below.)
+  ui.scrollTo(d.scrollId, saved)
+  d.pendingRestore = saved
+  return d
+end
+
+-- Resolves and (re)loads the game's own rulebook into self.docs.rulebook.
+function RV:ensureLoaded()
+  local folder = self.game.folderPath
+  local path, kind = resolveRulebookPath(folder)
+  return self:ensureDoc("rulebook", path, kind, folder, self.game.id)
+end
+
+-- Resolves and (re)loads scenario's guide into self.docs.guide, or drops
+-- it (returning nil) when there's no scenario, no guidePath, or the
+-- assigned file no longer exists on disk.
+function RV:ensureGuideLoaded(scenario)
+  if not scenario then
+    self.docs.guide = nil
+    return nil
+  end
+  local folder = self.game.folderPath
+  local path, kind = resolveGuidePath(folder, scenario.guidePath)
+  if not path then
+    self.docs.guide = nil
+    return nil
+  end
+  return self:ensureDoc("guide", path, kind, fs.join(folder, "_scenarios"),
+    tostring(self.game.id) .. ":guide:" .. tostring(scenario.id))
+end
+
 function RV:toggle()
   self.open = not self.open
-  if self.open then
-    self:ensureLoaded()
-    if not self.restoreDone then
-      -- Reused for both formats: a game only ever has one active rulebook
-      -- kind at a time, so there's no key collision to worry about.
-      local saved = rulebookSettings.getScroll(self.game.id)
-      -- Pre-emptive: also overwrites any stale in-memory scrollState left by
-      -- an earlier screen instance that happened to reuse this same id
-      -- string this session. (beginScroll would otherwise clamp this back
-      -- to 0 on a truly first-ever open, since it has no contentH yet - the
-      -- real fix is the pendingRestore re-apply after this frame's
-      -- endScroll (Markdown), or once PDF layout is known (PDF), below.)
-      ui.scrollTo(self.scrollId, saved)
-      self.pendingRestore = saved
-    end
-  else
-    rulebookSettings.setScroll(self.game.id, ui.scrollOffset(self.scrollId))
+  if not self.open then
+    local d = self.docs[self.activeDoc]
+    if d and d.scrollKey then rulebookSettings.setScroll(d.scrollKey, ui.scrollOffset(d.scrollId)) end
   end
 end
 
-function RV:drawToc(toc, x, y, w, h)
+function RV:drawToc(doc, toc, x, y, w, h)
   local c = theme.c
-  local off = ui.beginScroll(self.tocScrollId, x, y, w, h)
+  local off = ui.beginScroll("rulebook:toc:" .. self.activeDoc .. ":" .. tostring(self.game.id), x, y, w, h)
   local startY = y - off
   local yy = startY
   for i, entry in ipairs(toc) do
@@ -153,22 +206,22 @@ function RV:drawToc(toc, x, y, w, h)
       local r = ui.region("rbtoc:" .. i, x, yy, w, rowH, { cursor = "hand" })
       if r.hovered then ui.rect("fill", x, yy, w, rowH, 4, theme.alpha(c.onSurface, 0.08)) end
       ui.text(entry.text, x + indent + 8, yy + 5, { w = rowW - 8, size = 12, maxLines = 2, color = TOC_TEXT_COLOR })
-      if r.pressed then ui.scrollTo(self.scrollId, entry.y) end
+      if r.pressed then ui.scrollTo(doc.scrollId, entry.y) end
     end
     yy = yy + rowH
   end
-  ui.endScroll(self.tocScrollId, yy - startY, SCROLL_THUMB_OPTS)
+  ui.endScroll("rulebook:toc:" .. self.activeDoc .. ":" .. tostring(self.game.id), yy - startY, SCROLL_THUMB_OPTS)
 end
 
 -- Continuous-scroll PDF page stack: only the pages intersecting the
 -- viewport (plus one screen's worth of slack, to prefetch just ahead of
 -- scrolling) are requested/drawn, same "only touch visible rows" idiom as
 -- deck_library_dialog.lua's deck-tile grid.
-function RV:drawPdfPages(x, y, w, h, off, pageW)
+function RV:drawPdfPages(doc, x, y, w, h, off, pageW)
   local c = theme.c
-  local cache = self.pdfCache
+  local cache = doc.pdfCache
   local slack = h
-  for i, pg in ipairs(self.pdfLayout.pages) do
+  for i, pg in ipairs(doc.pdfLayout.pages) do
     local ty = y + pg.y - off
     if ty + pg.h > y - slack and ty < y + h + slack then
       cache:requestPage(i - 1, PDF_RENDER_WIDTH)
@@ -193,7 +246,11 @@ end
 -- self:toggle() directly - the host tracks its own rulebookOpen flag that
 -- gates whether this draw() call even happens, and self:toggle() alone
 -- can't reach back to flip that off.
-function RV:draw(onClose)
+--
+-- scenario (optional): the scenario whose Scenario Guide should be offered
+-- alongside the Rulebook, or nil for none (e.g. the deck editor, which has
+-- no loaded scenario at all -- it never sees the switcher).
+function RV:draw(onClose, scenario)
   -- This panel's chrome (panel.lua) is always the fixed dark "in-game
   -- overlay" style, same family as the Game Menu/Log/Card Library panels -
   -- not the live app theme. controls_dialog.drawBlocks colors its text from
@@ -206,55 +263,76 @@ function RV:draw(onClose)
   local savedTheme = theme.c
   theme.c = theme.dark
 
-  if self.pdfCache then self.pdfCache:update() end
+  self:ensureLoaded()
+  local guideAvailable = self:ensureGuideLoaded(scenario) ~= nil
+  if self.activeDoc == "guide" and not guideAvailable then self.activeDoc = "rulebook" end
+
+  for _, d in pairs(self.docs) do
+    if d.pdfCache then d.pdfCache:update() end
+  end
+
+  local doc = self.docs[self.activeDoc]
 
   local sw, sh = ui.screenSize()
   local ph = (sh - overlays.contentTop - 40) * 0.75
   local pw
-  if self.kind == "pdf" then
+  if doc.kind == "pdf" then
     local contentH = ph - panel.TITLE_BAR_H - 2 * CONTENT_PAD
     local pageW = contentH * PAGE_ASPECT
     pw = math.min(sw - 40, pageW + PDF_SCROLLBAR_GUTTER + 2 * CONTENT_PAD)
   else
     pw = (sw - 40) * 0.5
   end
-  local showToc = self.kind == "md"
+  local showToc = doc.kind == "md"
   local leading = showToc and {
     icon = self.tocVisible and "chevron_left" or "chevron_right",
     tooltip = self.tocVisible and "Hide contents" or "Show contents",
     onClick = function() self.tocVisible = not self.tocVisible end,
   } or nil
-  local x, y, w, h = panel.draw("rulebook", pw, ph, "Rulebook", onClose, nil, leading)
+  local x, y, w, h = panel.draw("rulebook", pw, ph, DOC_TITLES[self.activeDoc], onClose, nil, leading)
   x, y, w, h = x + CONTENT_PAD, y + CONTENT_PAD, w - 2 * CONTENT_PAD, h - 2 * CONTENT_PAD
 
-  if not self.hasContent then
-    ui.text("This game doesn't have a rulebook yet.", x, y,
-      { w = w, h = h, align = "center", valign = "middle", color = EMPTY_TEXT_COLOR })
+  if guideAvailable then
+    self.activeDoc = ui.segmented("rulebook:doctoggle", x, y, 280, DOC_OPTIONS, self.activeDoc, { h = DOC_TOGGLE_H })
+    y, h = y + DOC_TOGGLE_H + 12, h - DOC_TOGGLE_H - 12
+    doc = self.docs[self.activeDoc]
+  end
+
+  if not doc.hasContent then
+    local msg = self.activeDoc == "guide" and "This scenario doesn't have a guide yet."
+      or "This game doesn't have a rulebook yet."
+    ui.text(msg, x, y, { w = w, h = h, align = "center", valign = "middle", color = EMPTY_TEXT_COLOR })
     theme.c = savedTheme
     return
   end
 
-  if self.kind == "pdf" then
-    if self.pdfCache.openError then
-      ui.text("This rulebook's PDF couldn't be loaded: " .. self.pdfCache.openError, x, y,
+  if doc.kind == "pdf" then
+    if doc.pdfCache.openError then
+      ui.text("This document's PDF couldn't be loaded: " .. doc.pdfCache.openError, x, y,
         { w = w, h = h, align = "center", valign = "middle", color = EMPTY_TEXT_COLOR })
       theme.c = savedTheme
       return
     end
-    if not self.pdfCache.pointSizes then
+    if not doc.pdfCache.pointSizes then
       ui.spinner(x + w / 2, y + h / 2, 14)
       theme.c = savedTheme
       return
     end
     local pageW = w - PDF_SCROLLBAR_GUTTER
-    if not self.pdfLayout then self.pdfLayout = computePdfLayout(self.pdfCache.pointSizes, pageW, PDF_PAGE_GAP) end
-    local off = ui.beginScroll(self.scrollId, x, y, w, h)
-    self:drawPdfPages(x, y, w, h, off, pageW)
-    ui.endScroll(self.scrollId, self.pdfLayout.contentHeight, SCROLL_THUMB_OPTS)
-    if self.pendingRestore then
-      ui.scrollTo(self.scrollId, self.pendingRestore)
-      self.pendingRestore = nil
-      self.restoreDone = true
+    -- Recomputed whenever the column width it was built for changes (e.g.
+    -- the window got resized while this was open), not just once -- a
+    -- stale layout leaves gaps (or overlaps) between pages, since they're
+    -- always drawn at the *current* pageW regardless.
+    if not doc.pdfLayout or doc.pdfLayoutPageW ~= pageW then
+      doc.pdfLayout = computePdfLayout(doc.pdfCache.pointSizes, pageW, PDF_PAGE_GAP)
+      doc.pdfLayoutPageW = pageW
+    end
+    local off = ui.beginScroll(doc.scrollId, x, y, w, h)
+    self:drawPdfPages(doc, x, y, w, h, off, pageW)
+    ui.endScroll(doc.scrollId, doc.pdfLayout.contentHeight, SCROLL_THUMB_OPTS)
+    if doc.pendingRestore then
+      ui.scrollTo(doc.scrollId, doc.pendingRestore)
+      doc.pendingRestore = nil
     end
     theme.c = savedTheme
     return
@@ -262,21 +340,20 @@ function RV:draw(onClose)
 
   local docX = self.tocVisible and (x + TOC_W + TOC_GAP) or x
   local docW = self.tocVisible and (w - TOC_W - TOC_GAP) or w
-  local off = ui.beginScroll(self.scrollId, docX, y, docW, h)
+  local off = ui.beginScroll(doc.scrollId, docX, y, docW, h)
   local toc = {}
-  local height = controls.drawBlocks(docX, y - off, docW, self.blocks, {
+  local height = controls.drawBlocks(docX, y - off, docW, doc.blocks, {
     showH1 = true,
     onHeading = function(level, text, yOffset) toc[#toc + 1] = { level = level, text = text, y = yOffset } end,
   })
-  ui.endScroll(self.scrollId, height, SCROLL_THUMB_OPTS)
+  ui.endScroll(doc.scrollId, height, SCROLL_THUMB_OPTS)
 
-  if self.pendingRestore then
-    ui.scrollTo(self.scrollId, self.pendingRestore)
-    self.pendingRestore = nil
-    self.restoreDone = true
+  if doc.pendingRestore then
+    ui.scrollTo(doc.scrollId, doc.pendingRestore)
+    doc.pendingRestore = nil
   end
 
-  if self.tocVisible then self:drawToc(toc, x, y, TOC_W, h) end
+  if self.tocVisible then self:drawToc(doc, toc, x, y, TOC_W, h) end
   theme.c = savedTheme
 end
 

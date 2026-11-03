@@ -46,7 +46,7 @@ Hotkeys act on the card (or token, for Q / E) under the cursor and fire once per
 | Key | Effect | Applies to |
 |-----|--------|------------|
 | Space (hold) | Large preview of the hovered card, showing exactly what you can see of it | Any card |
-| F | Flip face-up/face-down | Your table cards, your hand, a shared zone's top card, or your own zone's top card if the editor marked that zone Flippable |
+| F | Flip face-up/face-down (a flipped token has no backside, so it just goes greyscale) | Your table cards, your hand, a shared zone's top card, your own zone's top card if the editor marked that zone Flippable, or a hovered token |
 | Q / E | Rotate 90° counter-clockwise / clockwise (hold Ctrl for 45° steps) | Your cards on the table, or a hovered token |
 | X | Send to your discard zone | Your cards on the table, if the game defines a discard pile |
 | Z | Bring the card's stack to the front | Your cards on the table |

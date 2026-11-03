@@ -71,6 +71,32 @@ end
 
 local function rgba(argb, a) return { color.toRgba(argb, a) } end
 
+-- Desaturated (luminance-weighted) version of argb at alpha a, for a
+-- flipped token's plain-color circle face.
+local function greyRgba(argb, a)
+  local r, g, b, aa = color.toRgba(argb, a)
+  local grey = r * 0.299 + g * 0.587 + b * 0.114
+  return { grey, grey, grey, aa }
+end
+
+-- Greyscale shader for a flipped imageToken (no backside, so it goes
+-- greyscale -- "inactive" -- instead): desaturates by luminance, keeping
+-- the source image's own alpha untouched.
+local tokenGreyShader
+local function greyShader()
+  if tokenGreyShader == nil then
+    local ok, s = pcall(love.graphics.newShader, [[
+      vec4 effect(vec4 col, Image tex, vec2 tc, vec2 sc) {
+        vec4 c = Texel(tex, tc);
+        float grey = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+        return vec4(grey, grey, grey, c.a) * col;
+      }
+    ]])
+    tokenGreyShader = ok and s or false
+  end
+  return tokenGreyShader or nil
+end
+
 ---------------------------------------------------------------------------
 -- Colors
 ---------------------------------------------------------------------------
@@ -535,6 +561,7 @@ end
 V.packFace = packFace
 
 local function tokenFace(T, w, cx, cy, size, alpha)
+  local flipped = w.faceUp == false
   if w.kind == "imageToken" then
     local path = w.imagePath and T.game.folderPath and fs.join(T.game.folderPath, "_tokens", w.imagePath)
     local img = path and imageCache.get(path)
@@ -546,14 +573,18 @@ local function tokenFace(T, w, cx, cy, size, alpha)
       local s = math.min(size / iw, size / ih)
       local angle = (w.rotationTurns or 0) * math.pi / 2
       love.graphics.setColor(1, 1, 1, alpha)
+      -- Tokens have no backside, so a flipped one goes greyscale instead --
+      -- reads as "inactive" rather than hiding it.
+      if flipped then love.graphics.setShader(greyShader()) end
       love.graphics.draw(img, cx, cy, angle, s, s, iw / 2, ih / 2)
+      if flipped then love.graphics.setShader() end
     else
       love.graphics.setColor(1, 1, 1, 0.3 * alpha)
       love.graphics.circle("line", cx, cy, size / 2)
     end
     return
   end
-  ui.setColor(rgba(w.backgroundColor, alpha))
+  ui.setColor(flipped and greyRgba(w.backgroundColor, alpha) or rgba(w.backgroundColor, alpha))
   love.graphics.circle("fill", cx, cy, size / 2)
   love.graphics.setColor(0, 0, 0, 0.26 * alpha)
   love.graphics.circle("line", cx, cy, size / 2)

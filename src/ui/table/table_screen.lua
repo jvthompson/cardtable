@@ -561,12 +561,22 @@ function T:flipHovered()
     for _, rootId in ipairs(roots) do self.controller:flipCard(stacks.topOf(self.derived.pileGroups[rootId]).instanceId) end
     return
   end
+  local tokenIds = self:hoveredSelectedTokenIds()
+  if tokenIds then
+    for _, id in ipairs(tokenIds) do self.controller:flipWidget(id) end
+    return
+  end
   local c = self:hoveredCard()
-  if not c then return end
-  local acting = self.session:actingPlayerId()
-  if c.ownerId ~= nil and c.ownerId ~= acting then return end
-  if c.zone == "zone" and not self:zoneAllowsFlip(c.zoneId) then return end
-  self.controller:flipCard(c.instanceId)
+  if c then
+    local acting = self.session:actingPlayerId()
+    if c.ownerId ~= nil and c.ownerId ~= acting then return end
+    if c.zone == "zone" and not self:zoneAllowsFlip(c.zoneId) then return end
+    self.controller:flipCard(c.instanceId)
+    return
+  end
+  local w = self:hoveredToken()
+  if not w then return end
+  self.controller:flipWidget(w.instanceId)
 end
 
 function T:discardHovered()
@@ -669,6 +679,17 @@ end
 function T:toggleRulebook()
   self.rulebookOpen = not self.rulebookOpen
   self.rulebook:toggle()
+end
+
+-- The loaded scenario whose Scenario Guide the rulebook window should
+-- offer, or nil. Most-recently-loaded wins when more than one loaded
+-- scenario has a guide.
+function T:activeScenarioWithGuide()
+  for i = #self.state.loadedScenarioIds, 1, -1 do
+    local scenario = models.GameDefinition.scenarioById(self.game, self.state.loadedScenarioIds[i])
+    if scenario and scenario.guidePath then return scenario end
+  end
+  return nil
 end
 
 local function ctrlDown() return love.keyboard.isDown("lctrl", "rctrl") end
@@ -1448,6 +1469,7 @@ function T:openItemMenu(item, mx, my)
       menu[#menu + 1] = { label = "Set Color", onSelect = function() self:promptSetTokenColor(item.widget) end }
     end
     menu[#menu + 1] = { label = "Size", submenu = self:tokenSizeMenuItems(item.widget) }
+    menu[#menu + 1] = { label = "Flip", onSelect = function() C:flipWidget(item.widget.instanceId) end }
     menu[#menu + 1] = { label = "Delete", onSelect = function() C:deleteWidget(item.widget.instanceId) end }
     overlays.menu(mx, my, menu)
     return true
@@ -2351,7 +2373,9 @@ function T:draw(x, y, w, h)
   if self.libraryOpen then ui.overlay(function() self:drawLibrary() end) end
   if self.tokenPickerOpen then ui.overlay(function() self:drawTokenPicker() end) end
   if self.logAnim > 0.001 then ui.overlay(function() self:drawLog() end) end
-  if self.rulebookOpen then ui.overlay(function() self.rulebook:draw(function() self:toggleRulebook() end) end) end
+  if self.rulebookOpen then
+    ui.overlay(function() self.rulebook:draw(function() self:toggleRulebook() end, self:activeScenarioWithGuide()) end)
+  end
   if self.gameMenuOpen then ui.overlay(function() self:drawGameMenu() end) end
   if self.sc and self.chatAnim > 0.001 then ui.overlay(function() self:drawChat() end) end
   ui.overlay(function() self:drawDragFeedback() end)

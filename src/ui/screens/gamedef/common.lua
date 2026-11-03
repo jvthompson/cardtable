@@ -37,6 +37,7 @@ C.orientationOptions = {
 }
 
 C.imageFilters = { { name = "Images", extensions = ops.imageFilterList } }
+C.documentFilters = { { name = "Document", extensions = { "pdf", "md" } } }
 
 -- A copy of card with its image path resolved for drawing.
 function C.displayCard(folderPath, card)
@@ -75,6 +76,24 @@ function C.chooseImage(destFolder, correctCardOrientation, onResult)
     -- The copy may have replaced a file the caches already hold.
     imageCache.invalidate(fs.join(destFolder, fileName))
     resolver.clearCache()
+    onResult(fileName)
+  end)
+end
+
+-- Picks a PDF or Markdown file and copies it into destFolder (e.g. a game's
+-- "_scenarios" folder); onResult(fileName) fires with its bare file name,
+-- or nil when cancelled or the copy failed (with a toast). copyPickedImage
+-- is format-agnostic despite the name -- it just copies a file and returns
+-- its bare name; `false` skips the image-only orientation correction.
+function C.chooseDocument(destFolder, onResult)
+  fileDialog.openFile({ title = "Choose Document", filters = C.documentFilters }, function(path)
+    if not path then onResult(nil); return end
+    local ok, fileName, err = pcall(ops.copyPickedImage, path, destFolder, false)
+    if not ok or not fileName then
+      overlays.toast("Could not copy that file: " .. tostring(ok and err or fileName))
+      onResult(nil)
+      return
+    end
     onResult(fileName)
   end)
 end

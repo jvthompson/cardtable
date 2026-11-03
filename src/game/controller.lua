@@ -72,6 +72,7 @@ function Host:rotateStack(rootId, clockwise, step)
 end
 
 function Host:rotateWidget(id, clockwise, step) self.session:rotateWidget(id, clockwise, step) end
+function Host:flipWidget(id) self.session:flipWidget(id) end
 
 function Host:bringToFront(rootId)
   if self:isOwnedOrUnowned(rootId) then self.session:bringToFront(rootId) end
@@ -179,6 +180,7 @@ end
 function Client:rotateWidget(id, clockwise, step)
   self.send("requestRotateWidget", p("instanceId", id, "clockwise", clockwise, "step", step))
 end
+function Client:flipWidget(id) self.send("requestFlipWidget", p("instanceId", id)) end
 function Client:bringToFront(rootId) self.send("requestBringToFront", p("rootInstanceId", rootId)) end
 function Client:flipCard(id) self.send("requestFlip", p("instanceId", id)) end
 

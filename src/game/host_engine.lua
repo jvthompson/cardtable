@@ -219,6 +219,8 @@ function E:handleMessage(clientId, msg)
       end
     elseif t == "requestRotateWidget" then
       if self:allowedWidget(p.instanceId, clientId) then s:rotateWidget(p.instanceId, p.clockwise == true, num(p.step) or 1) end
+    elseif t == "requestFlipWidget" then
+      if self:allowedWidget(p.instanceId, clientId) then s:flipWidget(p.instanceId) end
     elseif t == "requestDuplicateWidget" then
       if self:movableWidget(p.sourceInstanceId, clientId) then s:duplicateWidget(p.sourceInstanceId, p.newInstanceId, num(p.x), num(p.y)) end
     elseif t == "requestAttachWidgetToCard" then

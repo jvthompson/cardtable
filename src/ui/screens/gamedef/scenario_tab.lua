@@ -143,6 +143,28 @@ function T.drawScenarioDetail(self, scenario, x, y, w, h)
     self.pendingRemove = scenario
   end
   yy = yy + common.FIELD_H + 16
+
+  local chooseLabel = scenario.guidePath and "Change Guide..." or "Choose Guide..."
+  local chooseW = ui.buttonWidth(chooseLabel)
+  local clearW = scenario.guidePath and 40 or 0
+  ui.icon("insert_drive_file", cx, yy + 10, 20, theme.c.onSurfaceVariant)
+  ui.text(scenario.guidePath or "No Scenario Guide assigned", cx + 28, yy,
+    { w = cw - 28 - chooseW - clearW - 16, h = common.FIELD_H, valign = "middle", ellipsis = true,
+      color = scenario.guidePath and theme.c.onSurface or theme.c.onSurfaceVariant })
+  if scenario.guidePath then
+    if ui.iconButton("close", cx + cw - chooseW - clearW, yy + 4,
+      { tooltip = "Clear Scenario Guide", id = "scen:guide:clear" }) then
+      scenario.guidePath = nil
+    end
+  end
+  if ui.button(chooseLabel, cx + cw - chooseW, yy, chooseW, common.FIELD_H,
+    { variant = "outlined", id = "scen:guide:choose" }) then
+    common.chooseDocument(fs.join(self.editor.folderPath, "_scenarios"), function(file)
+      if file then scenario.guidePath = file end
+    end)
+  end
+  yy = yy + common.FIELD_H + 16
+
   self.view = ui.segmented("scen:view", cx, yy, math.min(cw, 480), VIEW_OPTIONS, self.view, { h = 40 })
   yy = yy + 40 + 16
 
