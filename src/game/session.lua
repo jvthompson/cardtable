@@ -505,8 +505,8 @@ end
 -- Loads a named scenario: appends its shared zones (skipping any id
 -- collision with an existing effective zone), deals each newly added
 -- zone's starting cards (or its built subdeck, if dealsBuiltDeck), and
--- spawns its authored table placements. No-op for an unknown scenario or
--- one already loaded this session.
+-- spawns its authored card and token table placements. No-op for an
+-- unknown scenario or one already loaded this session.
 function Session:loadScenario(scenarioId, actingPlayerId)
   local scenario = models.GameDefinition.scenarioById(self.game, scenarioId)
   if not scenario or containsString(self.state.loadedScenarioIds, scenarioId) then return end
@@ -533,6 +533,12 @@ function Session:loadScenario(scenarioId, actingPlayerId)
     if zone.kind == "widget" then
       newWidgets[#newWidgets + 1] = buildDealtWidget(zone, nil, 0) -- scenario zones are always shared
     end
+  end
+  for _, tp in ipairs(scenario.tokenPlacements) do
+    newWidgets[#newWidgets + 1] = models.BoardWidgetInstance.new({
+      instanceId = uuid.v4(), kind = "imageToken", x = tp.x, y = tp.y, zIndex = 0,
+      imagePath = tp.imagePath, rotationTurns = tp.rotationTurns, sizeOverride = tp.sizeOverride,
+    })
   end
   self.state = A.addWidgets(self.state, newWidgets)
 

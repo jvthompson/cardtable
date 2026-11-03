@@ -305,6 +305,9 @@ return function(t)
               models.ScenarioPlacement.new({ definitionId = "c", x = 0.2, y = 0.3, faceUp = false }),
               models.ScenarioPlacement.new({ definitionId = "missing", x = 0.5, y = 0.5 }),
             },
+            tokenPlacements = {
+              models.ScenarioTokenPlacement.new({ imagePath = "clue.png", x = 0.6, y = 0.7, rotationTurns = 1, sizeOverride = 50 }),
+            },
             decks = { models.SubDeck.new("boss_deck", { models.DeckEntry.new("a", 2), models.DeckEntry.new("c", 1) }) },
           }),
         },
@@ -325,6 +328,10 @@ return function(t)
       t.ok(placed, "the known placement should exist")
       t.eq({ placed.zone, placed.ownerId, placed.faceUp, placed.x, placed.y }, { "table", nil, false, 0.2, 0.3 })
       t.eq(#util.filter(s.state.cards, function(c) return c.definitionId == "missing" end), 0)
+      local tok = util.find(s.state.widgets, function(w) return w.kind == "imageToken" end)
+      t.ok(tok, "the authored token placement should spawn a free imageToken widget")
+      t.eq({ tok.imagePath, tok.x, tok.y, tok.rotationTurns, tok.sizeOverride, tok.ownerId },
+        { "clue.png", 0.6, 0.7, 1, 50, nil })
       t.eq(lastLog(s), 'Alice loaded the "Opening" scenario.')
     end)
 

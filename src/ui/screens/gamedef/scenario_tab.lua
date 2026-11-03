@@ -20,10 +20,13 @@ local color = require("src.core.color")
 local tableSettings = require("src.data.table_settings")
 local fs = require("src.data.fs")
 local colorpicker = require("src.ui.kit.colorpicker")
+local V = require("src.ui.table.table_view")
+local selection = require("src.ui.table.selection")
 
 local keyOf = common.keyOf
 
 local function isInteger(s) return s:match("^%-?%d+$") ~= nil end
+local function ctrlDown() return love.keyboard.isDown("lctrl", "rctrl") end
 
 local T = {}
 T.__index = T
@@ -158,6 +161,7 @@ function T:draw(x, y, w, h)
   local game = self.editor.game
   self.pendingRemove = nil
   self.hoveredId = nil
+  self.hoveredPlacementFace = nil
   listDetail.draw(self, x, y, w, h, game.scenarios, 300, T.drawScenarioList, T.drawScenarioDetail,
     "Add a scenario to get started")
   if self.pendingRemove then
@@ -173,12 +177,30 @@ function T:draw(x, y, w, h)
 end
 
 function T:keypressed(key)
-  if self.view ~= "placement" or not self.selected or not self.selectedPlacement then return end
-  if key == "f" then
-    self.selectedPlacement.faceUp = not self.selectedPlacement.faceUp
-  elseif key == "delete" or key == "backspace" then
-    util.removeValue(self.selected.placements, self.selectedPlacement)
-    self.selectedPlacement = nil
+  if self.view ~= "placement" or not self.selected then return end
+  local step = ctrlDown() and 0.5 or 1
+  if self.selectedPlacement then
+    local p = self.selectedPlacement
+    if key == "f" then
+      p.faceUp = not p.faceUp
+    elseif key == "q" then
+      p.rotationTurns = (p.rotationTurns or 0) - step
+    elseif key == "e" then
+      p.rotationTurns = (p.rotationTurns or 0) + step
+    elseif key == "delete" or key == "backspace" then
+      util.removeValue(self.selected.placements, p)
+      self.selectedPlacement = nil
+    end
+  elseif self.selectedTokenPlacement then
+    local p = self.selectedTokenPlacement
+    if key == "q" then
+      p.rotationTurns = (p.rotationTurns or 0) - step
+    elseif key == "e" then
+      p.rotationTurns = (p.rotationTurns or 0) + step
+    elseif key == "delete" or key == "backspace" then
+      util.removeValue(self.selected.tokenPlacements, p)
+      self.selectedTokenPlacement = nil
+    end
   end
 end
 
@@ -577,19 +599,31 @@ function T:drawDeckPool(scenario, deckType, x, y, w, h)
   end)
 end
 
--- Space preview: a big copy of the hovered pool card, as elsewhere in the
--- app (deck_editor.lua, the table screen). The editor's GameDefinition
--- holds bare image paths, so the preview needs a resolved display copy
--- just like the pool tiles do.
+-- Space preview: a big copy of the hovered card, as elsewhere in the app
+-- (deck_editor.lua, the table screen). The editor's GameDefinition holds
+-- bare image paths, so the preview needs a resolved display copy just like
+-- the pool tiles / placed cards do.
+--
+-- A hovered placement (self.hoveredPlacementFace) shows exactly what's on
+-- the canvas -- a single face, respecting that placement's own faceUp --
+-- matching the live table's "preview exactly what you can see" convention.
+-- A hovered pool/library tile (self.hoveredId only) instead browses the
+-- definition itself: front, then back if it has one.
 function T:drawPreview()
   if overlays.anyOpen() or ui.focus or not love.keyboard.isDown("space") then return end
   local game = self.editor.game
-  local def = self.hoveredId and models.GameDefinition.cardById(game, self.hoveredId)
-  if not def then return end
   local folder = self.editor.folderPath
-  local display = common.displayCard(folder, def)
   local displayBacks = common.displayCardBacks(folder, game.cardBacks)
   local sw, sh = ui.screenSize()
+  if self.hoveredPlacementFace then
+    local hf = self.hoveredPlacementFace
+    CR.drawPreview({ { def = common.displayCard(folder, hf.def), faceUp = hf.faceUp, orientation = hf.orientation } },
+      displayBacks, sw, sh, (ui.mouse()), game.scenarioCardBackId)
+    return
+  end
+  local def = self.hoveredId and models.GameDefinition.cardById(game, self.hoveredId)
+  if not def then return end
+  local display = common.displayCard(folder, def)
   CR.drawPreview(CR.definitionFaces(display, displayBacks, game.scenarioCardBackId), displayBacks, sw, sh, (ui.mouse()),
     game.scenarioCardBackId)
 end
@@ -709,26 +743,65 @@ function T:drawPlacementLibrary(game)
   theme.c = saved
 end
 
+-- Right-click's "Add Token..." -- opens the same curated token-grid picker the
+-- Token Bag fields use, and drops the chosen token immediately at the
+-- captured right-click position (see self.placementClickFx/Fy), selected.
+function T:promptAddToken(scenario)
+  common.chooseToken(self.editor.game, self.editor.folderPath, function(file)
+    local p = models.ScenarioTokenPlacement.new({ imagePath = file, x = self.placementClickFx, y = self.placementClickFy })
+    scenario.tokenPlacements[#scenario.tokenPlacements + 1] = p
+    self.selectedTokenPlacement, self.selectedPlacement = p, nil
+  end)
+end
+
+-- "Size" toolbar button's menu for a selected token placement: Default (clears
+-- sizeOverride), Medium (2x), Large (4x) -- mirrors table_screen.lua's
+-- T:tokenSizeMenuItems, but mutates the placement field directly (design-time).
+function T:placementTokenSizeMenuItems(p)
+  local options = { { label = "Default", size = nil }, { label = "Medium", size = V.imageTokenSize * 2 },
+    { label = "Large", size = V.imageTokenSize * 4 } }
+  local items = {}
+  for _, o in ipairs(options) do
+    items[#items + 1] = { label = o.label, checked = p.sizeOverride == o.size, onSelect = function() p.sizeOverride = o.size end }
+  end
+  return items
+end
+
 function T:drawPlacementView(scenario, x, y, w, h)
   local c = theme.c
   local game = self.editor.game
   if self.selectedPlacement and not util.contains(scenario.placements, self.selectedPlacement) then
     self.selectedPlacement = nil
   end
+  if self.selectedTokenPlacement and not util.contains(scenario.tokenPlacements, self.selectedTokenPlacement) then
+    self.selectedTokenPlacement = nil
+  end
 
   local toolbarH = 40
   local flipW = ui.buttonWidth("Flip")
+  local sizeW = ui.buttonWidth("Size")
   local delW = ui.buttonWidth("Delete", { icon = "delete_outline" })
-  ui.text("Right-click the table for the Card Library. Drag placed cards to move them.", x + 12, y,
-    { h = toolbarH, valign = "middle", size = 12, color = c.onSurfaceVariant, w = w - 24 - flipW - delW - 16 })
-  if ui.button("Flip", x + w - 12 - delW - 8 - flipW, y, flipW, toolbarH,
+  ui.text("Right-click to add a card or token. Drag to move (Ctrl+drag to clone); Q/E rotates (Ctrl for 45°).", x + 12, y,
+    { h = toolbarH, valign = "middle", size = 12, color = c.onSurfaceVariant, w = w - 24 - flipW - sizeW - delW - 24 })
+  if ui.button("Flip", x + w - 12 - delW - 8 - sizeW - 8 - flipW, y, flipW, toolbarH,
     { variant = "outlined", id = "scen:place:flip", disabled = self.selectedPlacement == nil }) then
     self.selectedPlacement.faceUp = not self.selectedPlacement.faceUp
   end
+  if ui.button("Size", x + w - 12 - delW - 8 - sizeW, y, sizeW, toolbarH,
+    { variant = "outlined", id = "scen:place:size", disabled = self.selectedTokenPlacement == nil }) then
+    local mx, my = ui.mouse()
+    overlays.menu(mx, my, self:placementTokenSizeMenuItems(self.selectedTokenPlacement))
+  end
   if ui.button("Delete", x + w - 12 - delW, y, delW, toolbarH,
-    { variant = "outlined", icon = "delete_outline", id = "scen:place:delete", disabled = self.selectedPlacement == nil }) then
-    util.removeValue(scenario.placements, self.selectedPlacement)
-    self.selectedPlacement = nil
+    { variant = "outlined", icon = "delete_outline", id = "scen:place:delete",
+      disabled = self.selectedPlacement == nil and self.selectedTokenPlacement == nil }) then
+    if self.selectedPlacement then
+      util.removeValue(scenario.placements, self.selectedPlacement)
+      self.selectedPlacement = nil
+    else
+      util.removeValue(scenario.tokenPlacements, self.selectedTokenPlacement)
+      self.selectedTokenPlacement = nil
+    end
   end
 
   local cx, cy, cw, ch, scale = canvasRect(x, y + toolbarH + 8, w, h - toolbarH - 8)
@@ -736,25 +809,54 @@ function T:drawPlacementView(scenario, x, y, w, h)
   ui.rect("line", cx + 1, cy + 1, cw - 2, ch - 2, 0, { color.toRgba(tableSettings.playmatBorderColor(game.playmatBorderColor)) })
 
   local canvasRegion = ui.region("scen:place:canvas", cx, cy, cw, ch)
-  if canvasRegion.rightClicked then self.placementLibraryOpen = true end
+  if canvasRegion.rightClicked then
+    local mx, my = ui.mouse()
+    self.placementClickFx = util.clamp((mx - cx) / cw, 0, 1)
+    self.placementClickFy = util.clamp((my - cy) / ch, 0, 1)
+    overlays.menu(mx, my, {
+      { label = "Add Card...", onSelect = function() self.placementLibraryOpen = true end },
+      { label = "Add Token...", onSelect = function() self:promptAddToken(scenario) end },
+    })
+  end
 
+  local pendingCardClone
   for _, p in ipairs(scenario.placements) do
     local def = models.GameDefinition.cardById(game, p.definitionId)
     if def then
       local sx, sy = cx + p.x * cw, cy + p.y * ch
-      local turned = def.orientation ~= "portrait"
-      local bw0, bh0 = turned and CR.cardHeight or CR.cardWidth, turned and CR.cardWidth or CR.cardHeight
-      local bw, bh = bw0 * scale, bh0 * scale
+      local totalTurns = CR.orientationTurns(def.orientation) + (p.rotationTurns or 0) / 4
+      local hw0, hh0 = selection.halfExtents(CR.cardWidth, CR.cardHeight, totalTurns)
+      local bw, bh = hw0 * 2 * scale, hh0 * 2 * scale
       local r = ui.region("scen:place:" .. keyOf(p), sx - bw / 2, sy - bh / 2, bw, bh, { cursor = "hand" })
-      if r.pressed then self.selectedPlacement = p end
+      if r.hovered then
+        self.hoveredId = def.id
+        self.hoveredPlacementFace = { def = def, faceUp = p.faceUp,
+          orientation = CR.shownOrientation(def, not p.faceUp, game.cardBacks, game.scenarioCardBackId) }
+      end
+      if r.pressed then
+        if ctrlDown() then
+          -- Ctrl+drag clones: the clone (not the original) follows the drag;
+          -- appending it to scenario.placements waits until after this loop
+          -- so we don't mutate the array we're mid-ipairs over.
+          local clone = models.ScenarioPlacement.new({ definitionId = p.definitionId, x = p.x, y = p.y,
+            faceUp = p.faceUp, rotationTurns = p.rotationTurns })
+          pendingCardClone = clone
+          self.cloneDragOriginal, self.cloneDragTarget = p, clone
+          self.selectedPlacement, self.selectedTokenPlacement = clone, nil
+        else
+          self.cloneDragOriginal, self.cloneDragTarget = nil, nil
+          self.selectedPlacement, self.selectedTokenPlacement = p, nil
+        end
+      end
       if r.held then
         local mx, my = ui.mouse()
         local hwF, hhF = (bw / 2) / cw, (bh / 2) / ch
-        p.x = util.clamp((mx - cx) / cw, hwF, 1 - hwF)
-        p.y = util.clamp((my - cy) / ch, hhF, 1 - hhF)
+        local target = (self.cloneDragOriginal == p) and self.cloneDragTarget or p
+        target.x = util.clamp((mx - cx) / cw, hwF, 1 - hwF)
+        target.y = util.clamp((my - cy) / ch, hhF, 1 - hhF)
       end
       CR.draw({ def = common.displayCard(self.editor.folderPath, def), faceUp = p.faceUp, cx = sx, cy = sy, scale = scale,
-        angle = CR.orientationTurns(def.orientation) * 2 * math.pi,
+        angle = totalTurns * 2 * math.pi,
         cardBacks = common.displayCardBacks(self.editor.folderPath, game.cardBacks),
         scenarioCardBackId = game.scenarioCardBackId })
       if p == self.selectedPlacement then
@@ -763,6 +865,41 @@ function T:drawPlacementView(scenario, x, y, w, h)
       ui.text(def.cardTitle, sx - bw / 2, sy + bh / 2 + 4, { w = bw, align = "center", size = 11, color = theme.fixed.white })
     end
   end
+  if pendingCardClone then scenario.placements[#scenario.placements + 1] = pendingCardClone end
+
+  local tokenShim = { game = { folderPath = self.editor.folderPath } }
+  local pendingTokenClone
+  for _, tp in ipairs(scenario.tokenPlacements) do
+    local w = { kind = "imageToken", imagePath = tp.imagePath, rotationTurns = tp.rotationTurns, sizeOverride = tp.sizeOverride }
+    local size = V.widgetInstanceSize(tokenShim, w)
+    local bw, bh = size * scale, size * scale
+    local sx, sy = cx + tp.x * cw, cy + tp.y * ch
+    local r = ui.region("scen:tplace:" .. keyOf(tp), sx - bw / 2, sy - bh / 2, bw, bh, { cursor = "hand" })
+    if r.pressed then
+      if ctrlDown() then
+        local clone = models.ScenarioTokenPlacement.new({ imagePath = tp.imagePath, x = tp.x, y = tp.y,
+          rotationTurns = tp.rotationTurns, sizeOverride = tp.sizeOverride })
+        pendingTokenClone = clone
+        self.cloneDragOriginal, self.cloneDragTarget = tp, clone
+        self.selectedTokenPlacement, self.selectedPlacement = clone, nil
+      else
+        self.cloneDragOriginal, self.cloneDragTarget = nil, nil
+        self.selectedTokenPlacement, self.selectedPlacement = tp, nil
+      end
+    end
+    if r.held then
+      local mx, my = ui.mouse()
+      local hwF, hhF = (bw / 2) / cw, (bh / 2) / ch
+      local target = (self.cloneDragOriginal == tp) and self.cloneDragTarget or tp
+      target.x = util.clamp((mx - cx) / cw, hwF, 1 - hwF)
+      target.y = util.clamp((my - cy) / ch, hhF, 1 - hhF)
+    end
+    V.tokenFace(tokenShim, w, sx, sy, bw, 1)
+    if tp == self.selectedTokenPlacement then
+      ui.rect("line", sx - bw / 2 - 2, sy - bh / 2 - 2, bw + 4, bh + 4, 4, theme.fixed.blue)
+    end
+  end
+  if pendingTokenClone then scenario.tokenPlacements[#scenario.tokenPlacements + 1] = pendingTokenClone end
 
   if self.placingDraft then
     local def = self.placingDraft
@@ -780,7 +917,7 @@ function T:drawPlacementView(scenario, x, y, w, h)
         local fy = util.clamp((my - cy) / ch, hhF, 1 - hhF)
         local placement = models.ScenarioPlacement.new({ definitionId = def.id, x = fx, y = fy, faceUp = true })
         scenario.placements[#scenario.placements + 1] = placement
-        self.selectedPlacement = placement
+        self.selectedPlacement, self.selectedTokenPlacement = placement, nil
       end
       self.placingDraft = nil
     end

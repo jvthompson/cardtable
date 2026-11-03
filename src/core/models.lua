@@ -482,7 +482,8 @@ local ScenarioPlacement = {}
 M.ScenarioPlacement = ScenarioPlacement
 
 function ScenarioPlacement.new(f)
-  return { definitionId = f.definitionId, x = f.x, y = f.y, faceUp = default(f.faceUp, true) }
+  return { definitionId = f.definitionId, x = f.x, y = f.y, faceUp = default(f.faceUp, true),
+    rotationTurns = f.rotationTurns or 0 }
 end
 
 function ScenarioPlacement.fromJson(t)
@@ -491,11 +492,40 @@ function ScenarioPlacement.fromJson(t)
     x = requireField(t, "x", "ScenarioPlacement"),
     y = requireField(t, "y", "ScenarioPlacement"),
     faceUp = default(t.faceUp, true),
+    rotationTurns = t.rotationTurns,
   })
 end
 
 function ScenarioPlacement.toJson(p)
-  return obj("definitionId", p.definitionId, "x", p.x, "y", p.y, "faceUp", unlessDefault(p.faceUp, true))
+  return obj("definitionId", p.definitionId, "x", p.x, "y", p.y, "faceUp", unlessDefault(p.faceUp, true),
+    "rotationTurns", unlessDefault(p.rotationTurns, 0))
+end
+
+---------------------------------------------------------------------------
+-- ScenarioTokenPlacement
+---------------------------------------------------------------------------
+
+local ScenarioTokenPlacement = {}
+M.ScenarioTokenPlacement = ScenarioTokenPlacement
+
+function ScenarioTokenPlacement.new(f)
+  return { imagePath = f.imagePath, x = f.x, y = f.y, rotationTurns = f.rotationTurns or 0,
+    sizeOverride = f.sizeOverride }
+end
+
+function ScenarioTokenPlacement.fromJson(t)
+  return ScenarioTokenPlacement.new({
+    imagePath = requireField(t, "imagePath", "ScenarioTokenPlacement"),
+    x = requireField(t, "x", "ScenarioTokenPlacement"),
+    y = requireField(t, "y", "ScenarioTokenPlacement"),
+    rotationTurns = t.rotationTurns,
+    sizeOverride = t.sizeOverride,
+  })
+end
+
+function ScenarioTokenPlacement.toJson(p)
+  return obj("imagePath", p.imagePath, "x", p.x, "y", p.y,
+    "rotationTurns", unlessDefault(p.rotationTurns, 0), "sizeOverride", p.sizeOverride)
 end
 
 ---------------------------------------------------------------------------
@@ -506,7 +536,8 @@ local Scenario = {}
 M.Scenario = Scenario
 
 function Scenario.new(f)
-  return { id = f.id, name = f.name, zones = f.zones or {}, placements = f.placements or {}, decks = f.decks or {} }
+  return { id = f.id, name = f.name, zones = f.zones or {}, placements = f.placements or {},
+    tokenPlacements = f.tokenPlacements or {}, decks = f.decks or {} }
 end
 
 function Scenario.fromJson(t)
@@ -515,6 +546,7 @@ function Scenario.fromJson(t)
     name = requireField(t, "name", "Scenario"),
     zones = mapJson(t.zones, ZoneDefinition.fromJson),
     placements = mapJson(t.placements, ScenarioPlacement.fromJson),
+    tokenPlacements = mapJson(t.tokenPlacements, ScenarioTokenPlacement.fromJson),
     decks = mapJson(t.decks, SubDeck.fromJson),
   })
 end
@@ -522,6 +554,7 @@ end
 function Scenario.toJson(s)
   return obj("id", s.id, "name", s.name, "zones", nonEmptyList(s.zones, ZoneDefinition.toJson),
     "placements", nonEmptyList(s.placements, ScenarioPlacement.toJson),
+    "tokenPlacements", nonEmptyList(s.tokenPlacements, ScenarioTokenPlacement.toJson),
     "decks", nonEmptyList(s.decks, SubDeck.toJson))
 end
 
