@@ -52,7 +52,7 @@ end
 -- image pixel -- see tokenFace), falling back to V.imageTokenSize if the
 -- image can't be loaded.
 function V.nativeImageSize(T, imagePath)
-  local path = imagePath and T.game.folderPath and fs.join(T.game.folderPath, "tokens", imagePath)
+  local path = imagePath and T.game.folderPath and fs.join(T.game.folderPath, "_tokens", imagePath)
   local img = path and imageCache.get(path)
   if not img then return V.imageTokenSize, V.imageTokenSize end
   local iw, ih = img:getDimensions()
@@ -476,7 +476,7 @@ local function counterFace(T, w, x, y, size, alpha)
   local cx, cy = x + size / 2, y + size / 2
   local img
   if w.imagePath then
-    local path = T.game.folderPath and fs.join(T.game.folderPath, "tokens", w.imagePath)
+    local path = T.game.folderPath and fs.join(T.game.folderPath, "_tokens", w.imagePath)
     img = path and imageCache.get(path)
   end
   if img then
@@ -536,7 +536,7 @@ V.packFace = packFace
 
 local function tokenFace(T, w, cx, cy, size, alpha)
   if w.kind == "imageToken" then
-    local path = w.imagePath and T.game.folderPath and fs.join(T.game.folderPath, "tokens", w.imagePath)
+    local path = w.imagePath and T.game.folderPath and fs.join(T.game.folderPath, "_tokens", w.imagePath)
     local img = path and imageCache.get(path)
     if img then
       -- Contain-fit with no stencil mask: unlike packFace's cover-fit clip, this
@@ -569,7 +569,7 @@ local BAG_SIZE, BAG_GAP = V.counterSize, 12
 -- revealed token as items (click/drag) only when interactable.
 local function drawTokenBag(T, w, zone, cx, cy, interactable)
   local function drawTokenImage(imagePath, ix, iy)
-    local path = imagePath and T.game.folderPath and fs.join(T.game.folderPath, "tokens", imagePath)
+    local path = imagePath and T.game.folderPath and fs.join(T.game.folderPath, "_tokens", imagePath)
     local img = path and imageCache.get(path)
     if img then
       local iw, ih = img:getDimensions()

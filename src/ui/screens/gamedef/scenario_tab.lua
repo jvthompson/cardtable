@@ -276,7 +276,7 @@ local function drawScenarioTokenBagFields(sub, zone, k, x, y, w)
   local yy = y
   local THUMB = 56
   local thumb = ui.region(k .. ":bagimg", x, yy, THUMB, THUMB, { cursor = "hand", tooltip = "Choose Bag Image..." })
-  common.imagePreviewBox(zone.bagImagePath and fs.join(folderPath, "tokens", zone.bagImagePath), x, yy, THUMB, THUMB)
+  common.imagePreviewBox(zone.bagImagePath and fs.join(folderPath, "_tokens", zone.bagImagePath), x, yy, THUMB, THUMB)
   if thumb.clicked then
     common.chooseTokenImage(folderPath, function(file) zone.bagImagePath = file end)
   end
@@ -312,7 +312,7 @@ local function drawScenarioTokenBagFields(sub, zone, k, x, y, w)
     local dw = w - 8 - common.stepperWidth
     local r = ui.region(ek .. ":pick", x, yy, dw, ROW_H, { cursor = "hand", tooltip = "Choose Token..." })
     if r.hovered then ui.rect("fill", x, yy, dw, ROW_H, 6, theme.alpha(c.onSurface, 0.05)) end
-    common.imagePreviewBox(entry.definitionId and fs.join(folderPath, "tokens", entry.definitionId),
+    common.imagePreviewBox(entry.definitionId and fs.join(folderPath, "_tokens", entry.definitionId),
       x + 4, yy + 4, ROW_H - 8, ROW_H - 8)
     ui.text(entry.definitionId and nameFor(entry.definitionId) or "(choose token)", x + ROW_H + 8, yy,
       { w = dw - ROW_H - 12, h = ROW_H, valign = "middle", ellipsis = true,
@@ -349,7 +349,7 @@ local function drawScenarioCounterFields(sub, zone, k, x, y, w)
   local hw = (w - common.GAP) / 2
   local THUMB = 56
   local thumb = ui.region(k .. ":counterimg", x, yy, THUMB, THUMB, { cursor = "hand", tooltip = "Choose Counter Image..." })
-  common.imagePreviewBox(zone.counterImagePath and fs.join(folderPath, "tokens", zone.counterImagePath), x, yy, THUMB, THUMB)
+  common.imagePreviewBox(zone.counterImagePath and fs.join(folderPath, "_tokens", zone.counterImagePath), x, yy, THUMB, THUMB)
   if thumb.clicked then
     common.chooseTokenImage(folderPath, function(file) zone.counterImagePath = file end)
   end

@@ -273,7 +273,7 @@ function T:drawWidgetZoneFields(zone, k, x, y, w)
   -- graphic; its color becomes a small accent circle behind the number.
   local THUMB = 56
   local thumb = ui.region(k .. ":counterimg", x, yy, THUMB, THUMB, { cursor = "hand", tooltip = "Choose Counter Image..." })
-  common.imagePreviewBox(zone.counterImagePath and fs.join(self.editor.folderPath, "tokens", zone.counterImagePath),
+  common.imagePreviewBox(zone.counterImagePath and fs.join(self.editor.folderPath, "_tokens", zone.counterImagePath),
     x, yy, THUMB, THUMB)
   if thumb.clicked then
     common.chooseTokenImage(self.editor.folderPath, function(file) zone.counterImagePath = file end)
@@ -310,7 +310,7 @@ function T:drawTokenBagFields(zone, k, x, y, w)
   local yy = y
   local THUMB = 56
   local thumb = ui.region(k .. ":bagimg", x, yy, THUMB, THUMB, { cursor = "hand", tooltip = "Choose Bag Image..." })
-  common.imagePreviewBox(zone.bagImagePath and fs.join(self.editor.folderPath, "tokens", zone.bagImagePath),
+  common.imagePreviewBox(zone.bagImagePath and fs.join(self.editor.folderPath, "_tokens", zone.bagImagePath),
     x, yy, THUMB, THUMB)
   if thumb.clicked then
     common.chooseTokenImage(self.editor.folderPath, function(file) zone.bagImagePath = file end)
@@ -347,7 +347,7 @@ function T:drawTokenBagFields(zone, k, x, y, w)
     local dw = w - 8 - common.stepperWidth
     local r = ui.region(ek .. ":pick", x, yy, dw, ROW_H, { cursor = "hand", tooltip = "Choose Token..." })
     if r.hovered then ui.rect("fill", x, yy, dw, ROW_H, 6, theme.alpha(c.onSurface, 0.05)) end
-    common.imagePreviewBox(entry.definitionId and fs.join(self.editor.folderPath, "tokens", entry.definitionId),
+    common.imagePreviewBox(entry.definitionId and fs.join(self.editor.folderPath, "_tokens", entry.definitionId),
       x + 4, yy + 4, ROW_H - 8, ROW_H - 8)
     ui.text(entry.definitionId and nameFor(entry.definitionId) or "(choose token)", x + ROW_H + 8, yy,
       { w = dw - ROW_H - 12, h = ROW_H, valign = "middle", ellipsis = true,

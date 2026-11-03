@@ -222,7 +222,7 @@ function C.collapseHeader(id, title, x, y, w, h, expanded, trailing)
   return r.clicked == true
 end
 
--- Scans <folderPath>/tokens/<subPath> (subPath, default "", relative to the
+-- Scans <folderPath>/_tokens/<subPath> (subPath, default "", relative to the
 -- tokens root, "/"-joined regardless of OS -- same convention as
 -- fs.listFilesRecursive's `rel`) for image files and subfolders, sorted by
 -- name. Returns (images, dirs):
@@ -233,7 +233,7 @@ end
 function C.tokenFolderImages(folderPath, subPath)
   if not folderPath then return {}, {} end
   subPath = subPath or ""
-  local dir = fs.join(folderPath, "tokens", subPath)
+  local dir = fs.join(folderPath, "_tokens", subPath)
   local function relOf(name) return subPath == "" and name or (subPath .. "/" .. name) end
   local images, dirs = {}, {}
   for _, e in ipairs(fs.list(dir) or {}) do
@@ -252,7 +252,7 @@ function C.tokenFolderImages(folderPath, subPath)
 end
 
 -- A thumbnail-grid popover to pick one tokens-root-relative bare path out
--- of <folderPath>/tokens, with subfolder navigation: an "Add Image..."
+-- of <folderPath>/_tokens, with subfolder navigation: an "Add Image..."
 -- tile, then (when not at the root) an "Up" tile, then any subfolders,
 -- then this folder's images. onResult(path) fires once, on pick or add
 -- (never on cancel).
@@ -266,14 +266,14 @@ function C.chooseTokenImage(folderPath, onResult)
       local images, dirs = C.tokenFolderImages(folderPath, subPath)
       local addW = ui.buttonWidth("Add Image...", { icon = "add" })
       if ui.button("Add Image...", x, y, addW, 40, { variant = "outlined", icon = "add", id = "ctok:add" }) then
-        C.chooseImage(fs.join(folderPath, "tokens", subPath), false, function(name)
+        C.chooseImage(fs.join(folderPath, "_tokens", subPath), false, function(name)
           if name then
             onResult(subPath == "" and name or (subPath .. "/" .. name))
             d:close()
           end
         end)
       end
-      ui.text(subPath == "" and "tokens" or ("tokens/" .. subPath), x + addW + 12, y,
+      ui.text(subPath == "" and "_tokens" or ("_tokens/" .. subPath), x + addW + 12, y,
         { h = 40, valign = "middle", color = theme.c.onSurfaceVariant, ellipsis = true, w = w - addW - 12 })
       local gy = y + 40 + 12
 
@@ -339,7 +339,7 @@ function C.gameTokenEntries(game, folderPath)
   local list = {}
   for _, tok in ipairs(game.tokens) do
     list[#list + 1] = { name = models.TokenDefinition.displayName(tok), file = tok.imagePath,
-      path = tok.imagePath and fs.join(folderPath, "tokens", tok.imagePath), tokenType = models.TokenDefinition.typeOf(tok) }
+      path = tok.imagePath and fs.join(folderPath, "_tokens", tok.imagePath), tokenType = models.TokenDefinition.typeOf(tok) }
   end
   return list
 end

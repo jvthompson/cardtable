@@ -31,7 +31,7 @@ local BTN_H = 36
 -- List
 ---------------------------------------------------------------------------
 
--- Scans <folderPath>/tokens recursively and adds a token for every image
+-- Scans <folderPath>/_tokens recursively and adds a token for every image
 -- not already referenced by an existing token's imagePath. A file found
 -- one subfolder down is named "<file>|<subfolder>" so that subfolder
 -- becomes its type (see models.TokenDefinition.typeOf); deeper nesting
@@ -46,7 +46,7 @@ function T:autoAddTokens()
     if tok.imagePath then used[tok.imagePath] = true end
   end
   local added = 0
-  for _, e in ipairs(fs.listFilesRecursive(fs.join(folder, "tokens"))) do
+  for _, e in ipairs(fs.listFilesRecursive(fs.join(folder, "_tokens"))) do
     local ext = fs.extension(e.rel)
     if not used[e.rel] and (ext == ".png" or ext == ".jpg" or ext == ".jpeg" or ext == ".webp") then
       local dirPart = fs.dirname(e.rel)
@@ -59,7 +59,7 @@ function T:autoAddTokens()
     end
   end
   overlays.toast(added > 0 and (added .. " token" .. (added == 1 and "" or "s") .. " added.")
-    or "No new images found in the tokens folder.")
+    or "No new images found in the _tokens folder.")
 end
 
 function T:drawList(x, y, w, h)
@@ -94,7 +94,7 @@ function T:drawList(x, y, w, h)
     end
     ro:handle(i, rx, yy + (ROW_H - 40) / 2, yy, ROW_H)
     local ix = rx + 40 + (ROW_H - THUMB) / 2
-    common.imagePreviewBox(tok.imagePath and fs.join(self.editor.folderPath, "tokens", tok.imagePath),
+    common.imagePreviewBox(tok.imagePath and fs.join(self.editor.folderPath, "_tokens", tok.imagePath),
       ix, yy + (ROW_H - THUMB) / 2, THUMB, THUMB)
     local fg = sel and c.onSecondaryContainer or c.onSurface
     local tx = ix + THUMB + 12
@@ -148,7 +148,7 @@ function T:drawDetail(tok, x, y, w, h)
 
   local THUMB_BIG = 96
   local thumb = ui.region(k .. ":img", cx, yy, THUMB_BIG, THUMB_BIG, { cursor = "hand", tooltip = "Choose Token Image..." })
-  common.imagePreviewBox(tok.imagePath and fs.join(self.editor.folderPath, "tokens", tok.imagePath),
+  common.imagePreviewBox(tok.imagePath and fs.join(self.editor.folderPath, "_tokens", tok.imagePath),
     cx, yy, THUMB_BIG, THUMB_BIG)
   if thumb.clicked then
     common.chooseTokenImage(self.editor.folderPath, function(file) tok.imagePath = file end)

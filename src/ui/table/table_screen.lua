@@ -455,7 +455,7 @@ function T:loadPlaymats()
 end
 
 ---------------------------------------------------------------------------
--- Token images (<gameFolder>/tokens, picked from the "Tokens" board menu)
+-- Token images (<gameFolder>/_tokens, picked from the "Tokens" board menu)
 ---------------------------------------------------------------------------
 
 -- The tokens defined on the game's Tokens tab, in their editor order, as
@@ -467,7 +467,7 @@ function T:definedTokenEntries()
   local list = {}
   for _, tok in ipairs(self.game.tokens) do
     list[#list + 1] = { name = models.TokenDefinition.displayName(tok), file = tok.imagePath,
-      path = tok.imagePath and fs.join(folder, "tokens", tok.imagePath), tokenType = models.TokenDefinition.typeOf(tok) }
+      path = tok.imagePath and fs.join(folder, "_tokens", tok.imagePath), tokenType = models.TokenDefinition.typeOf(tok) }
   end
   return list
 end
@@ -1615,7 +1615,7 @@ function T:promptChangeTokens(w)
         local dw = cw - 8 - common.stepperWidth
         local r = ui.region(ek .. ":pick", x, yy, dw, ROW_H, { cursor = "hand", tooltip = "Choose Token..." })
         if r.hovered then ui.rect("fill", x, yy, dw, ROW_H, 6, theme.alpha(theme.c.onSurface, 0.05)) end
-        common.imagePreviewBox(entry.file and fs.join(game.folderPath, "tokens", entry.file),
+        common.imagePreviewBox(entry.file and fs.join(game.folderPath, "_tokens", entry.file),
           x + 4, yy + 4, ROW_H - 8, ROW_H - 8)
         ui.text(entry.file and nameFor(entry.file) or "(choose token)", x + ROW_H + 8, yy,
           { w = dw - ROW_H - 12, h = ROW_H, valign = "middle", ellipsis = true,
