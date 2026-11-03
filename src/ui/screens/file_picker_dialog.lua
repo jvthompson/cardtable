@@ -9,6 +9,7 @@ local ui = require("src.ui.kit.ui")
 local theme = require("src.ui.kit.theme")
 local overlays = require("src.ui.kit.overlays")
 local fs = require("src.data.fs")
+local paths = require("src.data.paths")
 
 local M = {}
 
@@ -16,7 +17,12 @@ local ROW_H = 40
 local LIST_H = 360
 local DIALOG_W = 560
 
+-- Starts in the game library folder when it exists (most browsing is for
+-- game assets, gamedef.json files, etc.), falling back to the user's home
+-- folder, then the working directory.
 local function defaultDir()
+  local lib = paths.gamesDir()
+  if lib and fs.isDir(lib) then return lib end
   local home = fs.isWindows and os.getenv("USERPROFILE") or os.getenv("HOME")
   if home and fs.isDir(home) then return home end
   return love.filesystem.getWorkingDirectory()
