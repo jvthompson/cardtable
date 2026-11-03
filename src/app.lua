@@ -335,7 +335,7 @@ function App.draw()
 end
 
 function App.keypressed(key, scancode, isrepeat)
-  if key == "f11" and not isrepeat then
+  if key == "f6" and not isrepeat then
     window.toggleFrame()
     applyScale(true) -- setMode reset the minimum size
     return

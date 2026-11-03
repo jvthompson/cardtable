@@ -8,7 +8,7 @@ local W = {}
 
 W.titleBarHeight = 56
 W.resizeBorder = 6
-W.framed = false -- F11 toggles the native OS frame
+W.framed = false -- F6 toggles the native OS frame
 
 local sdl
 local callback
@@ -136,7 +136,7 @@ function W.toggleMaximize()
   if love.window.isMaximized() then love.window.restore() else love.window.maximize() end
 end
 
--- F11: switch between the custom title bar and the native frame. Like the
+-- F6: switch between the custom title bar and the native frame. Like the
 -- Flutter app, this is not true fullscreen.
 function W.toggleFrame()
   W.framed = not W.framed
