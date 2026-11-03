@@ -53,6 +53,15 @@ local DOC_OPTIONS = { { value = "rulebook", label = "Rulebook" }, { value = "gui
 local DOC_TOGGLE_H = 36
 local DOC_TITLES = { rulebook = "Rulebook", guide = "Scenario Guide" }
 
+-- Panel-width zoom: 1 = current default size, 2 = 150%, 3 = 200% (each
+-- capped to the same `sw - 40` margin everything else here maxes out at,
+-- so it never runs off-screen). Only widens the panel -- height is
+-- untouched -- since a wider PDF page column renders its page images
+-- larger (and thus its text more legible); see the pw calculation in
+-- :draw().
+local ZOOM_OPTIONS = { { value = 1, label = "100%" }, { value = 2, label = "150%" }, { value = 3, label = "200%" } }
+local ZOOM_W = 240
+
 function RV.new(game)
   local self = setmetatable({}, RV)
   self.game = game
@@ -60,6 +69,7 @@ function RV.new(game)
   self.activeDoc = "rulebook"
   self.docs = {} -- "rulebook" / "guide" -> { path, kind, hasContent, blocks, pdfCache, pdfLayout, scrollId, scrollKey, pendingRestore }
   self.tocVisible = true
+  self.zoomLevel = 1
   return self
 end
 
@@ -274,7 +284,7 @@ function RV:draw(onClose, scenario)
   local doc = self.docs[self.activeDoc]
 
   local sw, sh = ui.screenSize()
-  local ph = (sh - overlays.contentTop - 40) * 0.75
+  local ph = (sh - overlays.contentTop - 40) * 0.9
   local pw
   if doc.kind == "pdf" then
     local contentH = ph - panel.TITLE_BAR_H - 2 * CONTENT_PAD
@@ -282,6 +292,11 @@ function RV:draw(onClose, scenario)
     pw = math.min(sw - 40, pageW + PDF_SCROLLBAR_GUTTER + 2 * CONTENT_PAD)
   else
     pw = (sw - 40) * 0.5
+  end
+  if self.zoomLevel == 2 then
+    pw = math.min(sw - 40, pw * 1.5)
+  elseif self.zoomLevel == 3 then
+    pw = math.min(sw - 40, pw * 2)
   end
   local showToc = doc.kind == "md"
   local leading = showToc and {
@@ -294,9 +309,10 @@ function RV:draw(onClose, scenario)
 
   if guideAvailable then
     self.activeDoc = ui.segmented("rulebook:doctoggle", x, y, 280, DOC_OPTIONS, self.activeDoc, { h = DOC_TOGGLE_H })
-    y, h = y + DOC_TOGGLE_H + 12, h - DOC_TOGGLE_H - 12
     doc = self.docs[self.activeDoc]
   end
+  self.zoomLevel = ui.segmented("rulebook:zoom", x + w - ZOOM_W, y, ZOOM_W, ZOOM_OPTIONS, self.zoomLevel, { h = DOC_TOGGLE_H })
+  y, h = y + DOC_TOGGLE_H + 12, h - DOC_TOGGLE_H - 12
 
   if not doc.hasContent then
     local msg = self.activeDoc == "guide" and "This scenario doesn't have a guide yet."
