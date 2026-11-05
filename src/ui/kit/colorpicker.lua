@@ -1,42 +1,11 @@
--- Port of color_swatch_row.dart and color_picker_field.dart: a wrap of
--- 28px palette swatches, a hex field, and a preview button that opens a
--- full saturation/value + hue picker dialog.
+-- Port of color_picker_field.dart: a hex field and a preview button that
+-- opens a full saturation/value + hue picker dialog.
 local ui = require("src.ui.kit.ui")
 local theme = require("src.ui.kit.theme")
 local overlays = require("src.ui.kit.overlays")
 local color = require("src.core.color")
 
 local P = {}
-
-local SW = 28
-local GAP = 8
-
-local function swatchColor(argb) return { color.toRgba(argb) } end
-
--- Draws the swatch wrap; returns (newSelected, heightUsed).
-function P.swatchRow(id, x, y, w, selected)
-  local perRow = math.max(1, math.floor((w + GAP) / (SW + GAP)))
-  local c = theme.c
-  for i, argb in ipairs(color.boardWidgetColorPalette) do
-    local col, row = (i - 1) % perRow, math.floor((i - 1) / perRow)
-    local sx, sy = x + col * (SW + GAP), y + row * (SW + GAP)
-    local r = ui.region(id .. ":sw" .. i, sx, sy, SW, SW, { cursor = "hand" })
-    ui.setColor(swatchColor(argb))
-    love.graphics.circle("fill", sx + SW / 2, sy + SW / 2, SW / 2)
-    local isSel = argb == selected
-    ui.setColor(isSel and theme.fixed.blueAccent or c.outline)
-    love.graphics.setLineWidth(isSel and 3 or 1)
-    love.graphics.circle("line", sx + SW / 2, sy + SW / 2, SW / 2 - (isSel and 1.5 or 0.5))
-    love.graphics.setLineWidth(1)
-    if r.hovered then
-      love.graphics.setColor(1, 1, 1, 0.15)
-      love.graphics.circle("fill", sx + SW / 2, sy + SW / 2, SW / 2)
-    end
-    if r.clicked then selected = argb end
-  end
-  local rows = math.ceil(#color.boardWidgetColorPalette / perRow)
-  return selected, rows * SW + (rows - 1) * GAP
-end
 
 -- Full picker dialog; onPicked(argb) is called on "Select".
 function P.openPickerDialog(initial, onPicked)
@@ -106,8 +75,9 @@ function P.openPickerDialog(initial, onPicked)
   })
 end
 
--- Swatches + hex field + preview button. Returns (newArgb, heightUsed).
--- opts.hexLabel (default "Hex").
+-- Hex field + preview button. Returns (newArgb, heightUsed).
+-- opts.label: what the field represents, shown as its floating label
+-- instead of the generic "Hex" default (e.g. "Tabletop Color").
 function P.field(id, x, y, w, selected, opts)
   opts = opts or {}
   local st = ui.state(id)
@@ -115,23 +85,20 @@ function P.field(id, x, y, w, selected, opts)
     selected = st.picked
     st.picked = nil
   end
-  local newSel, rowH = P.swatchRow(id, x, y, w, selected)
-  if newSel ~= selected then selected = newSel end
   -- Keep the hex text in sync when the color changes from elsewhere.
   if st.lastColor ~= selected then
     st.hex = color.hexFromColor(selected)
     st.lastColor = selected
   end
-  local fy = y + rowH + 8
-  local hexText, changed = ui.textField(id .. ":hex", x, fy, w - 48, st.hex, {
-    label = opts.hexLabel or "Hex", prefix = "#", maxLength = 7, labelBackground = opts.labelBackground,
+  local hexText, changed = ui.textField(id .. ":hex", x, y, w - 48, st.hex, {
+    label = opts.label or "Hex", prefix = "#", maxLength = 7, labelBackground = opts.labelBackground,
   })
   st.hex = hexText
   if changed then
     selected = color.colorFromHex(hexText, selected)
     st.lastColor = selected
   end
-  local bx, by = x + w - 40, fy + 4
+  local bx, by = x + w - 40, y + 4
   local r = ui.region(id .. ":full", bx, by, 40, 40, { cursor = "hand", tooltip = "More colors" })
   local col = { color.toRgba(selected) }
   ui.rect("fill", bx, by, 40, 40, 4, col)
@@ -140,7 +107,7 @@ function P.field(id, x, y, w, selected, opts)
   if r.clicked then
     P.openPickerDialog(selected, function(argb) st.picked = argb end)
   end
-  return selected, rowH + 8 + 48
+  return selected, 48
 end
 
 return P

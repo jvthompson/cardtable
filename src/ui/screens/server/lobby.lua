@@ -288,9 +288,7 @@ function Lobby:openProfile()
       yy = yy + 12
       st.name = ui.textField("sp:name", x, yy, w, st.name, { label = "Player name", labelBackground = bg, maxLength = 24 })
       yy = yy + 48 + 16
-      ui.text("Color", x, yy)
-      yy = yy + 28
-      local col, ch = colorpicker.field("sp:color", x, yy, w, st.color, { labelBackground = bg })
+      local col, ch = colorpicker.field("sp:color", x, yy, w, st.color, { label = "Player Color", labelBackground = bg })
       st.color = col
       yy = yy + ch + 20
       ui.text("Change password (optional)", x, yy, { weight = "medium" })

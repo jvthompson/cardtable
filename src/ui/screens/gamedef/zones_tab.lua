@@ -294,9 +294,9 @@ function T:drawWidgetZoneFields(zone, k, x, y, w)
   yy = yy + common.FIELD_H + G
   local h1, h2
   zone.counterStartingColor, h1 = colorpicker.field(k .. ":color", x, yy, hw, zone.counterStartingColor,
-    { hexLabel = "Starting Color (hex)" })
+    { label = "Starting Color" })
   zone.counterStartingTextColor, h2 = colorpicker.field(k .. ":textcolor", x + hw + G, yy, hw, zone.counterStartingTextColor,
-    { hexLabel = "Starting Text Color (hex)" })
+    { label = "Starting Text Color" })
   yy = yy + math.max(h1, h2)
   return yy - y
 end

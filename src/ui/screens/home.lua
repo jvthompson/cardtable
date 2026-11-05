@@ -83,9 +83,8 @@ function Home.openEditPlayerSettings()
       yy = yy + 16
       st.name = ui.textField("eps:name", x, yy, w, st.name, { label = "Your name", autofocus = true, labelBackground = theme.c.surfaceContainerHigh })
       yy = yy + 48 + 16
-      ui.text("Your color", x, yy)
-      yy = yy + 28
-      local newColor, ch = colorpicker.field("eps:color", x, yy, w, st.color, { labelBackground = theme.c.surfaceContainerHigh })
+      local newColor, ch = colorpicker.field("eps:color", x, yy, w, st.color,
+        { label = "Player Color", labelBackground = theme.c.surfaceContainerHigh })
       st.color = newColor
       yy = yy + ch
       return yy - y

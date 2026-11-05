@@ -197,9 +197,7 @@ function L:draw(x, y, w, h)
       self.avatarPath = nil
     end
     yy = yy + size + 20
-    ui.text("Color", cx, yy)
-    yy = yy + 28
-    local newColor, ch = colorpicker.field("login:color", cx, yy, colW, self.color, { labelBackground = bg })
+    local newColor, ch = colorpicker.field("login:color", cx, yy, colW, self.color, { label = "Player Color", labelBackground = bg })
     self.color = newColor
     yy = yy + ch + 16
     rememberBox()

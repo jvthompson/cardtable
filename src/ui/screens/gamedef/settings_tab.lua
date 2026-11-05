@@ -293,11 +293,9 @@ function T:draw(x, y, w, h)
     info = "Optional. Leave cleared to use the app's default, or whatever a player has picked in their own Settings." })
   yy = yy + tch + 4
 
-  ui.text("Table color", cx, yy, { size = 12, color = c.onSurfaceVariant })
-  yy = yy + 20
   local feltArgb = (game.tableColor and color.colorFromHex(game.tableColor, tableSettings.defaultFeltColor))
     or tableSettings.defaultFeltColor
-  local pickedFelt, fh = colorpicker.field("gs:tableColor", cx, yy, cw, feltArgb)
+  local pickedFelt, fh = colorpicker.field("gs:tableColor", cx, yy, cw, feltArgb, { label = "Tabletop Color" })
   if pickedFelt ~= feltArgb then game.tableColor = "#" .. color.hexFromColor(pickedFelt) end
   yy = yy + fh + 4
   local clearLabel = "Clear table color"
@@ -307,11 +305,9 @@ function T:draw(x, y, w, h)
   end
   yy = yy + ui.BUTTON_H + common.GAP
 
-  ui.text("Playmat border color", cx, yy, { size = 12, color = c.onSurfaceVariant })
-  yy = yy + 20
   local borderArgb = (game.playmatBorderColor and color.colorFromHex(game.playmatBorderColor, tableSettings.defaultPlaymatBorderColor))
     or tableSettings.defaultPlaymatBorderColor
-  local pickedBorder, bh = colorpicker.field("gs:playmatBorderColor", cx, yy, cw, borderArgb)
+  local pickedBorder, bh = colorpicker.field("gs:playmatBorderColor", cx, yy, cw, borderArgb, { label = "Playmat Border Color" })
   if pickedBorder ~= borderArgb then game.playmatBorderColor = "#" .. color.hexFromColor(pickedBorder) end
   yy = yy + bh + 4
   clearLabel = "Clear playmat border color"

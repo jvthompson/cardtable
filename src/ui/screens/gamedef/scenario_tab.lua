@@ -419,9 +419,9 @@ local function drawScenarioCounterFields(sub, zone, k, x, y, w)
 
   local h1, h2
   zone.counterStartingColor, h1 = colorpicker.field(k .. ":color", x, yy, hw, zone.counterStartingColor,
-    { hexLabel = "Starting Color (hex)" })
+    { label = "Starting Color" })
   zone.counterStartingTextColor, h2 = colorpicker.field(k .. ":textcolor", x + hw + common.GAP, yy, hw, zone.counterStartingTextColor,
-    { hexLabel = "Starting Text Color (hex)" })
+    { label = "Starting Text Color" })
   yy = yy + math.max(h1, h2)
   return yy - y
 end

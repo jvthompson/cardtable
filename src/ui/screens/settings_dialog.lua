@@ -87,10 +87,8 @@ function M.open(opts)
       end
       yy = yy + 32 + ui.textHeight(feltTextureSubtitle, w - 64, 12) + 4 + 24
 
-      ui.text("Selection color", x, yy, { size = 12, color = c.onSurfaceVariant })
-      yy = yy + 20
       local picked, ph = colorpicker.field("settings:selectionColor", x, yy, w, tableSettings.selectionColor(),
-        { labelBackground = c.surfaceContainerHigh })
+        { label = "Selection Color", labelBackground = c.surfaceContainerHigh })
       tableSettings.setSelectionColor(picked)
       yy = yy + ph + 4
       label = "Reset selection color"
@@ -101,10 +99,8 @@ function M.open(opts)
       yy = yy + ui.BUTTON_H + 16
 
       local feltHex = game and game.tableColor
-      ui.text("Table color", x, yy, { size = 12, color = c.onSurfaceVariant })
-      yy = yy + 20
       local pickedFelt, fh = colorpicker.field("settings:feltColor", x, yy, w, tableSettings.feltColor(feltHex),
-        { labelBackground = c.surfaceContainerHigh })
+        { label = "Tabletop Color", labelBackground = c.surfaceContainerHigh })
       tableSettings.setFeltColor(pickedFelt, feltHex)
       yy = yy + fh + 4
       label = "Reset table color"
@@ -115,10 +111,8 @@ function M.open(opts)
       yy = yy + ui.BUTTON_H + 16
 
       local borderHex = game and game.playmatBorderColor
-      ui.text("Playmat border color", x, yy, { size = 12, color = c.onSurfaceVariant })
-      yy = yy + 20
       local pickedBorder, bh = colorpicker.field("settings:playmatBorderColor", x, yy, w,
-        tableSettings.playmatBorderColor(borderHex), { labelBackground = c.surfaceContainerHigh })
+        tableSettings.playmatBorderColor(borderHex), { label = "Playmat Border Color", labelBackground = c.surfaceContainerHigh })
       tableSettings.setPlaymatBorderColor(pickedBorder, borderHex)
       yy = yy + bh + 4
       label = "Reset playmat border color"

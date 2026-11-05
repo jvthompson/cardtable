@@ -1537,14 +1537,12 @@ function T:promptSetColors(w)
     title = "Set Colors", width = 400,
     content = function(_, x, y, cw)
       local yy = y
-      ui.text("Background", x, yy)
-      yy = yy + 28
       local h
-      st.bg, h = colorpicker.field("setcolors:bg", x, yy, cw, st.bg, { labelBackground = theme.c.surfaceContainerHigh })
+      st.bg, h = colorpicker.field("setcolors:bg", x, yy, cw, st.bg,
+        { label = "Background Color", labelBackground = theme.c.surfaceContainerHigh })
       yy = yy + h + 16
-      ui.text("Text", x, yy)
-      yy = yy + 28
-      st.text, h = colorpicker.field("setcolors:text", x, yy, cw, st.text, { labelBackground = theme.c.surfaceContainerHigh })
+      st.text, h = colorpicker.field("setcolors:text", x, yy, cw, st.text,
+        { label = "Text Color", labelBackground = theme.c.surfaceContainerHigh })
       return yy + h - y
     end,
     actions = { { label = "Cancel", variant = "text" },
@@ -1558,7 +1556,8 @@ function T:promptSetTokenColor(w)
     title = "Set Color", width = 400,
     content = function(_, x, y, cw)
       local h
-      st.color, h = colorpicker.field("setcolor:token", x, y, cw, st.color, { labelBackground = theme.c.surfaceContainerHigh })
+      st.color, h = colorpicker.field("setcolor:token", x, y, cw, st.color,
+        { label = "Token Color", labelBackground = theme.c.surfaceContainerHigh })
       return h
     end,
     actions = { { label = "Cancel", variant = "text" },
