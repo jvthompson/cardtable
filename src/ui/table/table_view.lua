@@ -1003,8 +1003,12 @@ local function drawHandBand(T, player, isLocal, x, y, w, rotate, fanDown)
       T.handCardCenters = {}
     end
     if count == 0 then
-      ui.text(isLocal and "Your hand is empty" or "Opponent's hand is empty", x, y,
-        { w = w, h = BAND_H, valign = "middle", align = "center", color = { 1, 1, 1, 0.7 } })
+      -- An empty opponent's hand is already visually obvious (no card
+      -- backs fanned out), so only the local player gets an explicit note.
+      if isLocal then
+        ui.text("Your hand is empty", x, y,
+          { w = w, h = BAND_H, valign = "middle", align = "center", color = { 1, 1, 1, 0.7 } })
+      end
       return
     end
     -- fanDown mirrors the arc vertically (pivot above the band) so a hand
@@ -1064,8 +1068,9 @@ local function drawHandBand(T, player, isLocal, x, y, w, rotate, fanDown)
 end
 
 local function drawZoneSlot(T, player, zone, isLocal, x, y, rotate)
-  local bg = V.zoneBackground(T, player.id)
-  ui.rect("fill", x, y, SLOT_W, SLOT_H, 0, bg)
+  -- No background fill of its own: the zone now docks on top of the hand
+  -- band, which already paints the player-tinted background underneath --
+  -- a second translucent fill here would double up and look off.
   withRotated(T, rotate, x, y, SLOT_W, SLOT_H, function()
     local cx, cy = x + SLOT_W / 2, y + SLOT_H / 2
     if zone.kind == "widget" then
@@ -1108,8 +1113,8 @@ end
 
 local function drawAvatarCorner(T, player, x, y)
   local session = T.session
-  local bg = V.zoneBackground(T, player.id)
-  ui.rect("fill", x, y, SLOT_W, SLOT_H, 0, bg)
+  -- No background fill of its own -- see drawZoneSlot: it docks on top
+  -- of the hand band, which already paints the background underneath.
   local isPractice = session.isLocalPractice
   local isActive = player.id == session:actingPlayerId()
   local isLocal = player.id == session.localPlayerId

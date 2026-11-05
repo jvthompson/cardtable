@@ -1168,7 +1168,13 @@ function T:updateDragScale()
   local mx, my = ui.mouse()
   local cx, cy = mx + d.grabX, my + d.grabY
   local target = 1
-  if self:isOverLocalHand(cx, cy) then
+  -- Zones dock on top of the (now panel-wide) hand band, so check them
+  -- first: a card hovered over a zone should ease to base size like any
+  -- other zone/table card, not hand size just because it's also within
+  -- the wider hand rect underneath.
+  if self:dockedZoneIdAt(cx, cy) then
+    target = 1
+  elseif self:isOverLocalHand(cx, cy) then
     target = V.handScale()
   elseif self:isOverTable(cx, cy) then
     target = self.zoom
