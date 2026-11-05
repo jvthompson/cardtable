@@ -1002,15 +1002,7 @@ local function drawHandBand(T, player, isLocal, x, y, w, rotate, fanDown)
       T.handRect = { x = x, y = ry, w = w, h = BAND_H + P.raise }
       T.handCardCenters = {}
     end
-    if count == 0 then
-      -- An empty opponent's hand is already visually obvious (no card
-      -- backs fanned out), so only the local player gets an explicit note.
-      if isLocal then
-        ui.text("Your hand is empty", x, y,
-          { w = w, h = BAND_H, valign = "middle", align = "center", color = { 1, 1, 1, 0.7 } })
-      end
-      return
-    end
+    if count == 0 then return end
     -- fanDown mirrors the arc vertically (pivot above the band) so a hand
     -- across the table fans toward the table while its cards stay upright.
     local sign = fanDown and -1 or 1
