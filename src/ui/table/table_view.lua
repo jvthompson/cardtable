@@ -15,6 +15,7 @@ local resolver = require("src.data.image_resolver")
 local fs = require("src.data.fs")
 local CR = require("src.ui.table.card_render")
 local handSettings = require("src.data.hand_settings")
+local tableSettings = require("src.data.table_settings")
 local selection = require("src.ui.table.selection")
 
 local V = {}
@@ -150,12 +151,13 @@ end
 
 -- Draws the table felt background at (x, y, w, h), tinted by feltRgba
 -- ({r, g, b, a}, 0..1 -- see table_screen.lua's feltColor()), with the
--- woven-cloth texture from feltShader() layered on top, mapped into world
--- space via `zoom`/`worldOffset` (see V.feltWorldOffset) so it tracks the
--- table camera. Falls back to a flat fill if shaders are unavailable.
+-- woven-cloth texture from feltShader() layered on top (unless the player
+-- has turned it off in Settings), mapped into world space via
+-- `zoom`/`worldOffset` (see V.feltWorldOffset) so it tracks the table
+-- camera. Falls back to a flat fill if shaders are unavailable.
 local function drawFelt(x, y, w, h, feltRgba, zoom, worldOffsetX, worldOffsetY)
   theme.setColor(feltRgba)
-  local sh = feltShader()
+  local sh = tableSettings.feltTextureEnabled() and feltShader()
   if sh then
     love.graphics.setShader(sh)
     sh:send("zoom", zoom)

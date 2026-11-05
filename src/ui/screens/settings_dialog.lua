@@ -79,6 +79,14 @@ function M.open(opts)
 
       yy = yy + heading("Table", x, yy)
       local game = opts.game
+      local feltTextureOn = tableSettings.feltTextureEnabled()
+      local feltTextureSubtitle = "Adds a subtle woven-cloth texture to the table."
+      if ui.switchRow("settings:feltTexture", "Felt texture", x, yy, w, feltTextureOn,
+        { subtitle = feltTextureSubtitle }) ~= feltTextureOn then
+        tableSettings.setFeltTextureEnabled(not feltTextureOn)
+      end
+      yy = yy + 32 + ui.textHeight(feltTextureSubtitle, w - 64, 12) + 4 + 24
+
       ui.text("Selection color", x, yy, { size = 12, color = c.onSurfaceVariant })
       yy = yy + 20
       local picked, ph = colorpicker.field("settings:selectionColor", x, yy, w, tableSettings.selectionColor(),

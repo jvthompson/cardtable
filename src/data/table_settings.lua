@@ -91,4 +91,17 @@ function T.resetPlaymatBorderColor()
   settings.remove(settings.keys.playmatBorderColor)
 end
 
+-- Whether the felt's woven-cloth shader is on (default: yes).
+function T.feltTextureEnabled()
+  return settings.get(settings.keys.feltTexture) ~= false
+end
+
+function T.setFeltTextureEnabled(enabled)
+  if enabled then
+    settings.remove(settings.keys.feltTexture)
+  else
+    settings.set(settings.keys.feltTexture, false)
+  end
+end
+
 return T
