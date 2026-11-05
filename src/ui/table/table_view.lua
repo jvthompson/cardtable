@@ -101,13 +101,16 @@ end
 -- color (whatever the player/gamedef picked) by small fractal noise -- a
 -- coarser fiber "clumping" pass plus a fine speckle pass -- so the
 -- background reads as woven fabric instead of a flat fill. No textures
--- involved and no animation (pure function of position), so it's a stable
--- pattern from frame to frame.
+-- involved and no time-based animation; it's sampled in world space (see
+-- V.feltWorldOffset/drawFelt) so the grain is anchored to the table
+-- surface -- it pans and scales with the camera instead of sliding under
+-- it like a screen-space overlay would.
 local feltShaderCache
 local function feltShader()
   if feltShaderCache == nil then
     local ok, s = pcall(love.graphics.newShader, [[
-      extern vec2 origin; // felt rect's top-left, in screen pixels
+      extern float zoom;        // T.zoom
+      extern vec2 worldOffset;  // see V.feltWorldOffset
 
       float hash(vec2 p) {
         return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
@@ -131,7 +134,7 @@ local function feltShader()
         return v;
       }
       vec4 effect(vec4 col, Image tex, vec2 texCoord, vec2 screenCoord) {
-        vec2 p = screenCoord - origin;
+        vec2 p = screenCoord / zoom + worldOffset; // screen px -> table-world px
         float grain = fiberGrain(p * 0.4) - 0.5;
         grain = sign(grain) * pow(abs(grain) * 2.0, 0.75) * 0.5; // punch up clump contrast
         float speckle = hash(floor(p * 2.2)) - 0.5;
@@ -147,14 +150,16 @@ end
 
 -- Draws the table felt background at (x, y, w, h), tinted by feltRgba
 -- ({r, g, b, a}, 0..1 -- see table_screen.lua's feltColor()), with the
--- woven-cloth texture from feltShader() layered on top. Falls back to a
--- flat fill if shaders are unavailable.
-local function drawFelt(x, y, w, h, feltRgba)
+-- woven-cloth texture from feltShader() layered on top, mapped into world
+-- space via `zoom`/`worldOffset` (see V.feltWorldOffset) so it tracks the
+-- table camera. Falls back to a flat fill if shaders are unavailable.
+local function drawFelt(x, y, w, h, feltRgba, zoom, worldOffsetX, worldOffsetY)
   theme.setColor(feltRgba)
   local sh = feltShader()
   if sh then
     love.graphics.setShader(sh)
-    sh:send("origin", { x, y })
+    sh:send("zoom", zoom)
+    sh:send("worldOffset", { worldOffsetX, worldOffsetY })
   end
   love.graphics.rectangle("fill", x, y, w, h)
   if sh then love.graphics.setShader() end
@@ -211,6 +216,19 @@ end
 function V.clampedCamera(T)
   local mx, my = V.maxPan(T)
   return math.max(-mx, math.min(mx, T.camX)), math.max(-my, math.min(my, T.camY))
+end
+
+-- zoom and world-space offset for the felt shader (see drawFelt above),
+-- derived the same way as V.worldToScreen below so the cloth grain lines
+-- up with the table surface: screenCoord / zoom + worldOffset == the
+-- table-world pixel under that screen pixel.
+function V.feltWorldOffset(T)
+  local tr = T.tableRect
+  local camX, camY = V.clampedCamera(T)
+  local zoom = T.zoom
+  local screenCenterX, screenCenterY = tr.x + tr.w / 2, tr.y + tr.h / 2
+  local worldCenterX, worldCenterY = WW / 2 - camX, WH / 2 - camY
+  return zoom, worldCenterX - screenCenterX / zoom, worldCenterY - screenCenterY / zoom
 end
 
 -- World pixel (0..2560 x 0..1440) -> screen.
@@ -1228,7 +1246,8 @@ end
 function V.draw(T, x, y, w, h)
   T.items, T.dropZones, T.bagDropZones, T.handRect, T.handCardCenters = {}, {}, {}, nil, {}
   V.layout(T, x, y, w, h)
-  drawFelt(x, y, w, h, T:feltColor())
+  local zoom, ox, oy = V.feltWorldOffset(T)
+  drawFelt(x, y, w, h, T:feltColor(), zoom, ox, oy)
   V.drawTable(T)
   local L = T.layoutRects
   drawPlayerRow(T, T.derived.rows.topRow, true, L.top.x, L.top.y, L.top.w)
