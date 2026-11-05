@@ -74,7 +74,7 @@ function R.buildLoadedTableState(saved, currentPlayers, savedIdToCurrentId, vali
   end)
   return models.TableState.new({
     gameId = saved.gameId, players = players, cards = cards, revision = saved.revision, widgets = widgets,
-    log = saved.log,
+    log = saved.log, loadedZones = saved.loadedZones, loadedScenarioIds = saved.loadedScenarioIds,
   }), dropped
 end
 
