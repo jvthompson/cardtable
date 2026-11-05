@@ -893,6 +893,15 @@ function T:handleCardDrop(instanceId, cx, cy)
       return
     end
   end
+  -- Checked before isOverLocalHand: the hand band now spans the whole
+  -- player panel and zones dock visually on top of it, so a drop that
+  -- lands on a zone's own box should go to that zone even though it's
+  -- also within the (now wider) hand rect.
+  local zoneId = self:dockedZoneIdAt(cx, cy)
+  if zoneId then
+    self.controller:returnToZone(instanceId, zoneId, alt)
+    return
+  end
   if self:isOverLocalHand(cx, cy) then
     local others, inHand = {}, false
     for _, c in ipairs(self.derived.localHand) do
@@ -903,11 +912,6 @@ function T:handleCardDrop(instanceId, cx, cy)
     -- slot it was dropped on (two requests keep the wire protocol as-is).
     if not inHand then self.controller:moveToHand(instanceId) end
     self.controller:reorderHand(instanceId, index)
-    return
-  end
-  local zoneId = self:dockedZoneIdAt(cx, cy)
-  if zoneId then
-    self.controller:returnToZone(instanceId, zoneId, alt)
     return
   end
   if not self:isOverTable(cx, cy) then return end
@@ -933,6 +937,13 @@ function T:handleSelectionDrop(d, cx, cy)
   local C = self.controller
   local cards = self:selectedCards()
   local alt = love.keyboard.isDown("lalt", "ralt")
+  -- See handleCardDrop: zones dock on top of the (now panel-wide) hand,
+  -- so a drop on a zone's own box must be checked first.
+  local zoneId = self:dockedZoneIdAt(cx, cy)
+  if zoneId then
+    self:sendCardsToZone(cards, zoneId, alt)
+    return
+  end
   if self:isOverLocalHand(cx, cy) then
     local others = {}
     for _, c in ipairs(self.derived.localHand) do others[#others + 1] = c.instanceId end
@@ -942,11 +953,6 @@ function T:handleSelectionDrop(d, cx, cy)
       C:reorderHand(c.instanceId, index + i - 1)
     end
     if #cards > 0 then sound.play("draw") end
-    return
-  end
-  local zoneId = self:dockedZoneIdAt(cx, cy)
-  if zoneId then
-    self:sendCardsToZone(cards, zoneId, alt)
     return
   end
   if not self:isOverTable(cx, cy) then return end
@@ -983,6 +989,13 @@ end
 
 function T:handlePileDrop(rootId, cards, cx, cy)
   self.controller:endCardDragPreview()
+  -- See handleCardDrop: zones dock on top of the (now panel-wide) hand,
+  -- so a drop on a zone's own box must be checked first.
+  local zoneId = self:dockedZoneIdAt(cx, cy)
+  if zoneId then
+    self:sendCardsToZone(cards, zoneId, love.keyboard.isDown("lalt", "ralt"))
+    return
+  end
   if self:isOverLocalHand(cx, cy) then
     local ordered = util.shallowCopy(cards)
     table.sort(ordered, function(a, b) return a.zIndex < b.zIndex end)
