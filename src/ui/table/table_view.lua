@@ -1140,6 +1140,12 @@ local function drawAvatarCorner(T, player, x, y)
   end
 end
 
+local function reversedCopy(list)
+  local r = {}
+  for i = #list, 1, -1 do r[#r + 1] = list[i] end
+  return r
+end
+
 local function drawPlayerRow(T, rowPlayers, isTopRow, x, y, w)
   if #rowPlayers == 0 then return end
   local n = #rowPlayers
@@ -1150,30 +1156,53 @@ local function drawPlayerRow(T, rowPlayers, isTopRow, x, y, w)
     local isLocal = player.id == T.session:actingPlayerId()
     local rotate = isTopRow and #T.state.players > 2 and player.id ~= T.session.localPlayerId
     local reverse = (n == 2 and i == 1) or (isTopRow and n == 1 and not rotate)
-    local zones = {}
-    for _, z in ipairs(ownedZones) do zones[#zones + 1] = z end
-    if reverse then
-      local r = {}
-      for k = #zones, 1, -1 do r[#r + 1] = zones[k] end
-      zones = r
+
+    -- Widget-kind zones (counters, token bags) dock over the hand band
+    -- instead of reserving their own column, so a few of them don't crowd
+    -- out hand space at lower resolutions; pile-kind zones (deck,
+    -- discard, ...) keep their own reserved columns as before.
+    local pileZones, widgetZones = {}, {}
+    for _, z in ipairs(ownedZones) do
+      if z.kind == "widget" then widgetZones[#widgetZones + 1] = z else pileZones[#pileZones + 1] = z end
     end
-    local handW = math.max(0, panelW - (#zones + 1) * SLOT_W)
+    if reverse then
+      pileZones, widgetZones = reversedCopy(pileZones), reversedCopy(widgetZones)
+    end
+
+    local handW = math.max(0, panelW - (#pileZones + 1) * SLOT_W)
     local cx = px
     -- An unrotated hand in the top row faces the table, so its fan opens downward.
     local fanDown = isTopRow and not rotate
-    local function hand() drawHandBand(T, player, isLocal, cx, y, handW, rotate, fanDown); cx = cx + handW end
-    local function zoneSlots()
-      for _, z in ipairs(zones) do
+    local handX
+    local function hand() handX = cx; drawHandBand(T, player, isLocal, cx, y, handW, rotate, fanDown); cx = cx + handW end
+    local function pileSlots()
+      for _, z in ipairs(pileZones) do
         drawZoneSlot(T, player, z, isLocal, cx, y, rotate)
         cx = cx + SLOT_W
       end
     end
     local function avatar() drawAvatarCorner(T, player, cx, y); cx = cx + SLOT_W end
-    if reverse then
-      avatar(); zoneSlots(); hand()
-    else
-      hand(); zoneSlots(); avatar()
+    -- Drawn last, after the hand and avatar, so widget zones paint -- and
+    -- hit-test -- on top of the hand cards they overlap. Docked flush
+    -- against whichever edge of the hand sits next to the pile
+    -- zones/avatar cluster, clamped to the player's own panel so a crowded
+    -- row overlaps itself rather than spilling into a neighboring panel.
+    local function widgetSlots()
+      if #widgetZones == 0 then return end
+      local totalW = #widgetZones * SLOT_W
+      local wx = reverse and handX or (handX + handW - totalW)
+      wx = math.max(px, math.min(wx, px + panelW - totalW))
+      for _, z in ipairs(widgetZones) do
+        drawZoneSlot(T, player, z, isLocal, wx, y, rotate)
+        wx = wx + SLOT_W
+      end
     end
+    if reverse then
+      avatar(); pileSlots(); hand()
+    else
+      hand(); pileSlots(); avatar()
+    end
+    widgetSlots()
   end
 end
 
