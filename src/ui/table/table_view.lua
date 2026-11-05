@@ -138,7 +138,7 @@ local function feltShader()
         float grain = fiberGrain(p * 0.4) - 0.5;
         grain = sign(grain) * pow(abs(grain) * 2.0, 0.75) * 0.5; // punch up clump contrast
         float speckle = hash(floor(p * 2.2)) - 0.5;
-        float shade = clamp(grain * 0.38 + speckle * 0.16, -0.45, 0.45);
+        float shade = clamp(grain * 0.22 + speckle * 0.09, -0.26, 0.26);
         vec3 rgb = col.rgb * (1.0 + shade);
         return vec4(rgb, col.a) * Texel(tex, texCoord);
       }
