@@ -97,6 +97,69 @@ local function greyShader()
   return tokenGreyShader or nil
 end
 
+-- Procedural cloth-grain shader for the table felt: multiplies the felt
+-- color (whatever the player/gamedef picked) by small fractal noise -- a
+-- coarser fiber "clumping" pass plus a fine speckle pass -- so the
+-- background reads as woven fabric instead of a flat fill. No textures
+-- involved and no animation (pure function of position), so it's a stable
+-- pattern from frame to frame.
+local feltShaderCache
+local function feltShader()
+  if feltShaderCache == nil then
+    local ok, s = pcall(love.graphics.newShader, [[
+      extern vec2 origin; // felt rect's top-left, in screen pixels
+
+      float hash(vec2 p) {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+      }
+      float valueNoise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        float a = hash(i), b = hash(i + vec2(1.0, 0.0));
+        float c = hash(i + vec2(0.0, 1.0)), d = hash(i + vec2(1.0, 1.0));
+        return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+      }
+      float fiberGrain(vec2 p) {
+        float v = 0.0;
+        float amp = 0.5;
+        for (int i = 0; i < 4; i++) {
+          v += amp * valueNoise(p);
+          p *= 2.03;
+          amp *= 0.5;
+        }
+        return v;
+      }
+      vec4 effect(vec4 col, Image tex, vec2 texCoord, vec2 screenCoord) {
+        vec2 p = screenCoord - origin;
+        float grain = fiberGrain(p * 0.4) - 0.5;
+        grain = sign(grain) * pow(abs(grain) * 2.0, 0.75) * 0.5; // punch up clump contrast
+        float speckle = hash(floor(p * 2.2)) - 0.5;
+        float shade = clamp(grain * 0.38 + speckle * 0.16, -0.45, 0.45);
+        vec3 rgb = col.rgb * (1.0 + shade);
+        return vec4(rgb, col.a) * Texel(tex, texCoord);
+      }
+    ]])
+    feltShaderCache = ok and s or false
+  end
+  return feltShaderCache or nil
+end
+
+-- Draws the table felt background at (x, y, w, h), tinted by feltRgba
+-- ({r, g, b, a}, 0..1 -- see table_screen.lua's feltColor()), with the
+-- woven-cloth texture from feltShader() layered on top. Falls back to a
+-- flat fill if shaders are unavailable.
+local function drawFelt(x, y, w, h, feltRgba)
+  theme.setColor(feltRgba)
+  local sh = feltShader()
+  if sh then
+    love.graphics.setShader(sh)
+    sh:send("origin", { x, y })
+  end
+  love.graphics.rectangle("fill", x, y, w, h)
+  if sh then love.graphics.setShader() end
+end
+
 ---------------------------------------------------------------------------
 -- Colors
 ---------------------------------------------------------------------------
@@ -1165,7 +1228,7 @@ end
 function V.draw(T, x, y, w, h)
   T.items, T.dropZones, T.bagDropZones, T.handRect, T.handCardCenters = {}, {}, {}, nil, {}
   V.layout(T, x, y, w, h)
-  ui.rect("fill", x, y, w, h, 0, T:feltColor())
+  drawFelt(x, y, w, h, T:feltColor())
   V.drawTable(T)
   local L = T.layoutRects
   drawPlayerRow(T, T.derived.rows.topRow, true, L.top.x, L.top.y, L.top.w)
