@@ -106,6 +106,9 @@ end
 function Host:shuffleZone(zoneId) self.session:shuffleZone(zoneId, self:zoneOwnerId(zoneId), self:acting()) end
 function Host:loadDeckIntoZone(zoneId, deck) self.session:loadDeckIntoZone(zoneId, deck, self:acting()) end
 function Host:loadScenario(scenarioId) self.session:loadScenario(scenarioId, self:acting()) end
+function Host:setSharedPlaymat(on, index) self.session:setSharedPlaymat(on, index) end
+function Host:setCurrentPlayer(playerId) self.session:setCurrentPlayer(playerId) end
+function Host:setIndividualPlaymat(on, index) self.session:setIndividualPlaymat(self:acting(), on, index) end
 function Host:startSearchZone(zoneId) self.session:startSearchZone(zoneId, self:zoneOwnerId(zoneId), self:acting()) end
 
 function Host:startSearchPile(rootId)
@@ -206,6 +209,9 @@ function Client:loadDeckIntoZone(zoneId, deck)
 end
 
 function Client:loadScenario(scenarioId) self.send("requestLoadScenario", p("scenarioId", scenarioId)) end
+function Client:setSharedPlaymat(on, index) self.send("requestSetSharedPlaymat", p("on", on, "index", index)) end
+function Client:setCurrentPlayer(playerId) self.send("requestSetCurrentPlayer", p("playerId", playerId)) end
+function Client:setIndividualPlaymat(on, index) self.send("requestSetIndividualPlaymat", p("on", on, "index", index)) end
 
 function Client:startSearchZone(zoneId) self.send("requestStartSearchZone", p("zoneId", zoneId)) end
 function Client:startSearchPile(rootId) self.send("requestStartSearchPile", p("pileRootInstanceId", rootId)) end

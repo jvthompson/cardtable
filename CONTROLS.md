@@ -55,11 +55,11 @@ Hotkeys act on the card (or token, for Q / E) under the cursor and fire once per
 | Home or H | Reset camera pan and zoom | |
 | F1 | Show/hide the ownership border on every card | This session only |
 | F2 | Toggle zone/hand backgrounds between player-color tint and black | This session only |
-| F11 | Cycle the playmat area: none (default), one large shared area, one per player | This session only |
-| F12 | Cycle through the game's playmats | |
+| F11 | Toggle the game's playmat(s) on/off. For a shared playmat, host only; for individual playmats, each player controls their own | Persists across sessions |
+| F12 | Cycle through the playmats defined on the game's Playmats tab. For a shared playmat, host only; for individual playmats, each player controls their own | Persists across sessions |
 | L | Open/close the Game Log (with a Save Log button) | |
 | C | Open/close the chat panel (server games only) | |
-| Ctrl + R | Open/close the Rulebook viewer (if the game has a rulebook.md), with a collapsible table-of-contents sidebar. Also works in the Deck Editor. | |
+| Ctrl + R | Open/close the Rulebook viewer (if the game has a rulebook.md), with a collapsible table-of-contents sidebar. Also works in the Deck Editor and the Game Definition Editor. | |
 | Esc | Clear the selection; with nothing selected, open/close the Game Menu (save game, settings, controls, kick a player, leave/end game) | |
 | Ctrl (while dropping a token) | Duplicate the token instead of moving it | Token widgets |
 
@@ -77,7 +77,7 @@ Typed into any chat box (lobby, room, or the in-game chat panel) on a CardTable 
 
 | Target | Menu |
 |--------|------|
-| Empty table | **Widgets** (Simple Counter, Token, Pack Generator, Deck Widget when the game has deck-building zones) and **Card Library** |
+| Empty table | **Widgets** (Simple Counter, Token, Pack Generator, Deck Widget when the game has deck-building zones), **Card Library**, and **Pass Turn To** a player (marks their avatar as the current player; cosmetic only) |
 | Your card | **Send to...** Hand / Discard / a zone (Top, Shuffle Into, Bottom); on the table also **Flip**, **Rotate**, **Give to** a player and **Remove Ownership** (both ask first; not offered for a card in a pile) |
 | A selected card (2+ items selected) | The same actions for every selected card, plus **Create Pile Here** (piles them all at the click, in their current order) |
 | Your pile | Same as a card, plus **Search...** |
@@ -106,3 +106,9 @@ Your hand is drawn as a fan of cards along the bottom of the screen, and opponen
 | Click a card in the deck list | Remove one copy |
 | Hover | Preview the card |
 | Ctrl + R | Open/close the Rulebook viewer |
+
+## Game Definition Editor
+
+| Action | Effect |
+|--------|--------|
+| Rulebook toolbar button, or Ctrl + R | Open/close the Rulebook viewer (if the game has a rulebook.md or rulebook.pdf) |

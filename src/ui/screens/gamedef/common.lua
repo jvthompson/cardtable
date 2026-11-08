@@ -241,18 +241,19 @@ function C.collapseHeader(id, title, x, y, w, h, expanded, trailing)
   return r.clicked == true
 end
 
--- Scans <folderPath>/_tokens/<subPath> (subPath, default "", relative to the
--- tokens root, "/"-joined regardless of OS -- same convention as
--- fs.listFilesRecursive's `rel`) for image files and subfolders, sorted by
--- name. Returns (images, dirs):
--- images: { name, file, path } -- file is the tokens-root-relative bare
---   path to store (just the name at the root, "sub/name.png" one level
---   down, etc.), path a resolved one for display.
+-- Scans <folderPath>/<rootName>/<subPath> (rootName default "_tokens",
+-- subPath default "", relative to that root, "/"-joined regardless of OS --
+-- same convention as fs.listFilesRecursive's `rel`) for image files and
+-- subfolders, sorted by name. Returns (images, dirs):
+-- images: { name, file, path } -- file is the root-relative bare path to
+--   store (just the name at the root, "sub/name.png" one level down, etc.),
+--   path a resolved one for display.
 -- dirs: { name, rel } -- rel is the subPath to pass back in to descend.
-function C.tokenFolderImages(folderPath, subPath)
+function C.tokenFolderImages(folderPath, subPath, rootName)
   if not folderPath then return {}, {} end
   subPath = subPath or ""
-  local dir = fs.join(folderPath, "_tokens", subPath)
+  rootName = rootName or "_tokens"
+  local dir = fs.join(folderPath, rootName, subPath)
   local function relOf(name) return subPath == "" and name or (subPath .. "/" .. name) end
   local images, dirs = {}, {}
   for _, e in ipairs(fs.list(dir) or {}) do
@@ -270,29 +271,30 @@ function C.tokenFolderImages(folderPath, subPath)
   return images, dirs
 end
 
--- A thumbnail-grid popover to pick one tokens-root-relative bare path out
--- of <folderPath>/_tokens, with subfolder navigation: an "Add Image..."
--- tile, then (when not at the root) an "Up" tile, then any subfolders,
--- then this folder's images. onResult(path) fires once, on pick or add
--- (never on cancel).
-function C.chooseTokenImage(folderPath, onResult)
+-- A thumbnail-grid popover to pick one root-relative bare path out of
+-- <folderPath>/<rootName> (default "_tokens"), with subfolder navigation:
+-- an "Add Image..." tile, then (when not at the root) an "Up" tile, then
+-- any subfolders, then this folder's images. onResult(path) fires once,
+-- on pick or add (never on cancel).
+function C.chooseTokenImage(folderPath, onResult, rootName)
+  rootName = rootName or "_tokens"
   local subPath = ""
   local TILE, GAP, COLS = 72, 8, 4
   local GRID_H = 280
   overlays.dialog({
     title = "Choose Token Image", width = COLS * TILE + (COLS - 1) * GAP + 48,
     content = function(d, x, y, w)
-      local images, dirs = C.tokenFolderImages(folderPath, subPath)
+      local images, dirs = C.tokenFolderImages(folderPath, subPath, rootName)
       local addW = ui.buttonWidth("Add Image...", { icon = "add" })
       if ui.button("Add Image...", x, y, addW, 40, { variant = "outlined", icon = "add", id = "ctok:add" }) then
-        C.chooseImage(fs.join(folderPath, "_tokens", subPath), false, function(name)
+        C.chooseImage(fs.join(folderPath, rootName, subPath), false, function(name)
           if name then
             onResult(subPath == "" and name or (subPath .. "/" .. name))
             d:close()
           end
         end)
       end
-      ui.text(subPath == "" and "_tokens" or ("_tokens/" .. subPath), x + addW + 12, y,
+      ui.text(subPath == "" and rootName or (rootName .. "/" .. subPath), x + addW + 12, y,
         { h = 40, valign = "middle", color = theme.c.onSurfaceVariant, ellipsis = true, w = w - addW - 12 })
       local gy = y + 40 + 12
 
@@ -348,6 +350,12 @@ function C.chooseTokenImage(folderPath, onResult)
     actions = { { label = "Cancel", variant = "text" } },
   })
 end
+
+-- Playmat-image equivalents of the two functions above, scoped to
+-- <folderPath>/_playmats (the folder table_screen.lua resolves playmat
+-- entries' imagePath against).
+function C.playmatFolderImages(folderPath, subPath) return C.tokenFolderImages(folderPath, subPath, "_playmats") end
+function C.choosePlaymatImage(folderPath, onResult) C.chooseTokenImage(folderPath, onResult, "_playmats") end
 
 -- The game's defined tokens, resolved for display: { name, file, path,
 -- tokenType }. Empty when the game doesn't use tokens (or has none

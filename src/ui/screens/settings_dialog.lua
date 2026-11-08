@@ -120,6 +120,18 @@ function M.open(opts)
         { variant = "text", disabled = tableSettings.isPlaymatBorderColorDefault(), id = "settings:playmatBorderColor:reset" }) then
         tableSettings.resetPlaymatBorderColor()
       end
+      yy = yy + ui.BUTTON_H + 16
+
+      local turnHex = game and game.currentTurnColor
+      local pickedTurn, th = colorpicker.field("settings:currentTurnColor", x, yy, w,
+        tableSettings.currentTurnColor(turnHex), { label = "Current Turn Color", labelBackground = c.surfaceContainerHigh })
+      tableSettings.setCurrentTurnColor(pickedTurn, turnHex)
+      yy = yy + th + 4
+      label = "Reset current turn color"
+      if ui.button(label, x - 12, yy, ui.buttonWidth(label), nil,
+        { variant = "text", disabled = tableSettings.isCurrentTurnColorDefault(), id = "settings:currentTurnColor:reset" }) then
+        tableSettings.resetCurrentTurnColor()
+      end
       yy = yy + ui.BUTTON_H
       return yy - y
     end,

@@ -145,7 +145,7 @@ T.icons = {
   send = 0xe163, shield = 0xe9e0, toll = 0xe8e0, block = 0xe14b, vpn_key = 0xe0da, card_giftcard = 0xe8f6,
   sports_esports = 0xea28, group = 0xe7ef, swap_horiz = 0xe8d4, hourglass_empty = 0xe88b, history = 0xe889,
   local_cafe = 0xe541, folder = 0xe2c7, insert_drive_file = 0xe24d, arrow_upward = 0xe5d8,
-  upload_file = 0xe2c6,
+  upload_file = 0xe2c6, menu_book = 0xea19,
 }
 
 local glyphCache = {}

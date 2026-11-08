@@ -13,6 +13,7 @@ local T = {}
 T.defaultSelectionColor = 0xFFFFEB3B -- Material yellow 500
 T.defaultFeltColor = 0xFF0B6E4F -- mirrors the old theme.fixed.felt
 T.defaultPlaymatBorderColor = 0xFF063D2A -- mirrors the old theme.fixed.centerMarkerBorder
+T.defaultCurrentTurnColor = 0xFF00C853 -- pure green
 
 local selectionCached
 
@@ -89,6 +90,33 @@ function T.isPlaymatBorderColorDefault() return T.playmatBorderOverride() == nil
 function T.resetPlaymatBorderColor()
   borderOverride, borderLoaded = nil, true
   settings.remove(settings.keys.playmatBorderColor)
+end
+
+local turnLoaded, turnOverride
+
+function T.currentTurnOverride()
+  if not turnLoaded then
+    local v = tonumber(settings.get(settings.keys.currentTurnColor))
+    turnOverride, turnLoaded = v and math.floor(v) or nil, true
+  end
+  return turnOverride
+end
+
+-- gameHex: the current game's own currentTurnColor ("#RRGGBB"), or nil.
+function T.currentTurnColor(gameHex)
+  return T.currentTurnOverride() or (gameHex and color.colorFromHex(gameHex, nil)) or T.defaultCurrentTurnColor
+end
+
+function T.setCurrentTurnColor(argb, gameHex)
+  if argb == T.currentTurnColor(gameHex) then return end
+  turnOverride, turnLoaded = argb, true
+  settings.set(settings.keys.currentTurnColor, argb)
+end
+
+function T.isCurrentTurnColorDefault() return T.currentTurnOverride() == nil end
+function T.resetCurrentTurnColor()
+  turnOverride, turnLoaded = nil, true
+  settings.remove(settings.keys.currentTurnColor)
 end
 
 -- Whether the felt's woven-cloth shader is on (default: yes).

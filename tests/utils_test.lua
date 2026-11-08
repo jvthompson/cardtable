@@ -269,7 +269,7 @@ return function(t)
       }, widgets = {
         H.widget({ id = "w1", ownerId = "saved_alice", creatorId = "saved_bob", attachedCardId = "c3" }),
       }, searches = { models.ActiveSearch.new({ searcherId = "x", targetType = "zone", targetId = "z" }) },
-        log = { models.LogEntry.new(1500, "Alice drew a card") } })
+        log = { models.LogEntry.new(1500, "Alice drew a card") }, currentPlayerId = "saved_bob" })
       local state, dropped = remap.buildLoadedTableState(saved, { cB, cA },
         { saved_alice = "cur_alice", saved_bob = "cur_bob" }, { card_a = true, card_b = true })
       t.eq(t.ids(state.players, "id"), { "cur_alice", "cur_bob" })
@@ -283,6 +283,12 @@ return function(t)
       t.eq(state.revision, 42)
       t.eq(#state.log, 1)
       t.eq(state.log[1].elapsedMs, 1500)
+      t.eq(state.currentPlayerId, "cur_bob")
+    end)
+    t.it("buildLoadedTableState clears currentPlayerId when that player wasn't matched", function()
+      local saved = H.state({ players = { sA }, currentPlayerId = "saved_bob" })
+      local state = remap.buildLoadedTableState(saved, { cA }, { saved_alice = "cur_alice" }, {})
+      t.isNil(state.currentPlayerId)
     end)
     t.it("clears a dangling stackParentId", function()
       local saved = H.state({ players = { sA }, cards = {

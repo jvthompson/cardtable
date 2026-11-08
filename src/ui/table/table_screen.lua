@@ -31,6 +31,7 @@ local imageCache = require("src.data.image_cache")
 local sound = require("src.game.sound")
 local color = require("src.core.color")
 local tableSettings = require("src.data.table_settings")
+local playmatSettings = require("src.data.playmat_settings")
 local CR = require("src.ui.table.card_render")
 local V = require("src.ui.table.table_view")
 local selection = require("src.ui.table.selection")
@@ -68,9 +69,7 @@ function T.new(opts)
   self.chatOpen, self.chatAnim, self.chatText, self.seenChat = false, 0, "", 0
   self.rulebook = require("src.ui.screens.rulebook_viewer").new(self.game)
   self.lastPreviewAt = 0
-  self.playmats, self.playmatIndex = {}, 0
-  self.playmatMode = "none"
-  self:loadPlaymats()
+  self:seedPlaymat()
   self.tokenPickerType = "all"
   self.library = filterBar.newState(self.game)
   self.libraryScenario = false
@@ -209,6 +208,9 @@ function T:selectionColor() return { color.toRgba(tableSettings.selectionColor()
 function T:feltColor() return { color.toRgba(tableSettings.feltColor(self.game and self.game.tableColor)) } end
 function T:playmatBorderColor()
   return { color.toRgba(tableSettings.playmatBorderColor(self.game and self.game.playmatBorderColor)) }
+end
+function T:currentTurnColor()
+  return { color.toRgba(tableSettings.currentTurnColor(self.game and self.game.currentTurnColor)) }
 end
 
 function T:selectionTint()
@@ -436,22 +438,85 @@ function T:confirmGive(cards, newOwnerId)
 end
 
 ---------------------------------------------------------------------------
--- Playmats (<gameFolder>/_playmats, cycled with F12)
+-- Playmats (authored on the game's Playmats tab, cycled with F12)
 ---------------------------------------------------------------------------
 
-function T:loadPlaymats()
+-- The playmats defined on the game's Playmats tab, as {path, scale} entries
+-- (path resolved under <gameFolder>/_playmats), in their editor order.
+function T:definedPlaymatEntries()
   local folder = self.game.folderPath
-  if not folder then return end
-  local dir = fs.join(folder, "_playmats")
   local list = {}
-  for _, e in ipairs(fs.list(dir) or {}) do
-    local ext = fs.extension(e.name)
-    if not e.isDir and (ext == ".png" or ext == ".jpg" or ext == ".jpeg" or ext == ".webp") then
-      list[#list + 1] = fs.join(dir, e.name)
-    end
+  for _, pm in ipairs(self.game.playmats) do
+    list[#list + 1] = { path = pm.imagePath and folder and fs.join(folder, "_playmats", pm.imagePath),
+      scale = pm.scale }
   end
-  util.shuffle(list)
-  self.playmats = list
+  return list
+end
+
+-- Pushes this client's last-remembered on/off + index choice for gameId
+-- into the live (synced) TableState once, when the table screen loads.
+-- Shared mode: only the host's push actually takes effect (gated server
+-- side); individual mode: every player pushes their own, independently.
+function T:seedPlaymat()
+  local gameId = self.game.id
+  local seedOn, seedIndex = playmatSettings.on(gameId), playmatSettings.index(gameId)
+  if not seedOn and seedIndex == 0 then return end
+  if self.game.playmatType == "shared" then
+    if self.canLoadScenario then self.controller:setSharedPlaymat(seedOn, seedIndex) end
+  elseif models.TableState.playerById(self.session.state, self.session:actingPlayerId()) then
+    self.controller:setIndividualPlaymat(seedOn, seedIndex)
+  end
+end
+
+-- Current (on, index) for whichever mode is active: the table-wide shared
+-- pair, or the pair belonging to whichever player we're currently acting as
+-- (self.session:actingPlayerId() -- the hotseat-practice seat you're
+-- controlling, or just your own localPlayerId outside practice mode). Must
+-- match the identity Host:setIndividualPlaymat/host_engine.lua's
+-- requestSetIndividualPlaymat actually write to, or a hotseat seat switch
+-- makes F11/F12 silently read one player's state while writing another's.
+function T:playmatOnIndex()
+  if self.game.playmatType == "shared" then
+    return self.state.sharedPlaymatOn, self.state.sharedPlaymatIndex
+  end
+  local me = models.TableState.playerById(self.state, self.session:actingPlayerId())
+  if not me then return false, 0 end
+  return me.individualPlaymatOn, me.individualPlaymatIndex
+end
+
+-- F11: toggle on/off. Shared mode is host-only (self.canLoadScenario is the
+-- same "am I the host/owner" flag used for Load Scenario); individual mode
+-- is each player toggling only their own mat.
+function T:togglePlaymatsOn()
+  local on, index = self:playmatOnIndex()
+  if self.game.playmatType == "shared" then
+    if self.canLoadScenario then
+      self.controller:setSharedPlaymat(not on, index)
+      playmatSettings.set(self.game.id, not on, index)
+    end
+  elseif models.TableState.playerById(self.state, self.session:actingPlayerId()) then
+    self.controller:setIndividualPlaymat(not on, index)
+    playmatSettings.set(self.game.id, not on, index)
+  end
+end
+
+-- F12: cycle to the next defined playmat (wrapping past the end turns it
+-- off, index 0, matching the old folder-scan cyclePlaymat's behavior).
+function T:cyclePlaymat()
+  local count = #self.game.playmats
+  if count == 0 then return end
+  local on, index = self:playmatOnIndex()
+  index = index + 1
+  if index > count then index = 0 end
+  if self.game.playmatType == "shared" then
+    if self.canLoadScenario then
+      self.controller:setSharedPlaymat(index > 0, index)
+      playmatSettings.set(self.game.id, index > 0, index)
+    end
+  elseif models.TableState.playerById(self.state, self.session:actingPlayerId()) then
+    self.controller:setIndividualPlaymat(index > 0, index)
+    playmatSettings.set(self.game.id, index > 0, index)
+  end
 end
 
 ---------------------------------------------------------------------------
@@ -480,24 +545,6 @@ function T:tokenTypeOptions()
     options[#options + 1] = { value = ty, label = ty }
   end
   return options
-end
-
-function T:cyclePlaymat()
-  if #self.playmats == 0 then return end
-  self.playmatIndex = self.playmatIndex + 1
-  if self.playmatIndex > #self.playmats then self.playmatIndex = 0 end
-end
-
--- Cycled with F11: no playmat area, one large shared area, or one per player.
-local PLAYMAT_MODES = { "none", "single", "perPlayer" }
-function T:cyclePlaymatMode()
-  for i, m in ipairs(PLAYMAT_MODES) do
-    if m == self.playmatMode then
-      self.playmatMode = PLAYMAT_MODES[i % #PLAYMAT_MODES + 1]
-      return
-    end
-  end
-  self.playmatMode = PLAYMAT_MODES[1]
 end
 
 ---------------------------------------------------------------------------
@@ -716,7 +763,7 @@ function T:keypressed(key, _, isrepeat)
     if key == "home" or key == "h" then self.camX, self.camY, self.zoom = 0, 0, 1
     elseif key == "f1" then self.bordersHidden = not self.bordersHidden
     elseif key == "f2" then self.colorTintEnabled = not self.colorTintEnabled
-    elseif key == "f11" then self:cyclePlaymatMode()
+    elseif key == "f11" then self:togglePlaymatsOn()
     elseif key == "f12" then self:cyclePlaymat()
     elseif key == "l" then self:toggleLog()
     elseif key == "r" and ctrlDown() then self:toggleRulebook()
@@ -732,7 +779,7 @@ function T:keypressed(key, _, isrepeat)
     self.camX, self.camY, self.zoom = 0, 0, 1
   elseif key == "f1" then self.bordersHidden = not self.bordersHidden
   elseif key == "f2" then self.colorTintEnabled = not self.colorTintEnabled
-  elseif key == "f11" then self:cyclePlaymatMode()
+  elseif key == "f11" then self:togglePlaymatsOn()
   elseif key == "f12" then self:cyclePlaymat()
   elseif key == "l" then self:toggleLog()
   elseif key == "r" and ctrlDown() then self:toggleRulebook()
@@ -1433,8 +1480,25 @@ function T:openBoardMenu(mx, my)
     { label = "Widgets", submenu = widgetItems },
     -- Available even in collection mode: some games still need to pull
     -- cards from the library mid-session, not just build a deck from owned ones.
-    { label = "Card Library", onSelect = function() self.libraryOpen = true end } }
+    { label = "Card Library", onSelect = function() self.libraryOpen = true end },
+    { label = "Pass Turn To", submenu = self:passTurnMenuItems() } }
   overlays.menu(mx, my, menu)
+end
+
+-- Cosmetic-only turn marker: lists every connected player so anyone can
+-- reassign whose avatar shows as the current player.
+function T:passTurnMenuItems()
+  local items = {}
+  for _, p in ipairs(self.state.players) do
+    if p.connected then
+      items[#items + 1] = {
+        label = p.name,
+        checked = self.state.currentPlayerId == p.id,
+        onSelect = function() self.controller:setCurrentPlayer(p.id) end,
+      }
+    end
+  end
+  return items
 end
 
 function T:openCounterMenu(mx, my, w, includeDelete)

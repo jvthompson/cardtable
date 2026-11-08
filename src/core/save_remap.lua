@@ -72,9 +72,14 @@ function R.buildLoadedTableState(saved, currentPlayers, savedIdToCurrentId, vali
       attachedCardId = (w.attachedCardId ~= nil and not keptIds[w.attachedCardId]) and util.NIL or w.attachedCardId or util.NIL,
     })
   end)
+  -- Not run through remap(): that returns util.NIL for copyWith's benefit,
+  -- but TableState.new wants a plain nil when there's no match.
+  local currentPlayerId = saved.currentPlayerId and savedIdToCurrentId[saved.currentPlayerId] or nil
+
   return models.TableState.new({
     gameId = saved.gameId, players = players, cards = cards, revision = saved.revision, widgets = widgets,
     log = saved.log, loadedZones = saved.loadedZones, loadedScenarioIds = saved.loadedScenarioIds,
+    currentPlayerId = currentPlayerId,
   }), dropped
 end
 

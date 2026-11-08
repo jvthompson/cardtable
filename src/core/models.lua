@@ -75,6 +75,7 @@ M.ZoneKind = { card = true, widget = true }
 M.ZoneWidgetKind = { counter = true, tokenBag = true }
 M.PlayerRole = { host = true, client = true }
 M.SearchTargetType = { zone = true, pile = true }
+M.PlaymatType = { shared = true, individual = true }
 
 M.hiddenDefinitionId = "__hidden__"
 M.uniqueCardBackId = "__unique__"
@@ -572,6 +573,30 @@ function Scenario.entriesFor(s, name)
 end
 
 ---------------------------------------------------------------------------
+-- PlaymatDefinition
+---------------------------------------------------------------------------
+
+local PlaymatDefinition = {}
+M.PlaymatDefinition = PlaymatDefinition
+
+-- imagePath is relative to <gameFolder>/_playmats/, same convention as
+-- ZoneDefinition.counterImagePath relative to _tokens/.
+function PlaymatDefinition.new(f)
+  return { imagePath = f.imagePath, scale = f.scale or 1.0 }
+end
+
+function PlaymatDefinition.fromJson(t)
+  return PlaymatDefinition.new({
+    imagePath = requireField(t, "imagePath", "PlaymatDefinition"),
+    scale = t.scale,
+  })
+end
+
+function PlaymatDefinition.toJson(p)
+  return obj("imagePath", p.imagePath, "scale", unlessDefault(p.scale, 1.0))
+end
+
+---------------------------------------------------------------------------
 -- GameDefinition
 ---------------------------------------------------------------------------
 
@@ -589,6 +614,9 @@ function GameDefinition.new(f)
     sets = f.sets or {},
     tableColor = f.tableColor, -- optional "#RRGGBB"; nil defers to the player's/app's default
     playmatBorderColor = f.playmatBorderColor,
+    currentTurnColor = f.currentTurnColor,
+    playmatType = f.playmatType or "individual", -- "shared" | "individual"
+    playmats = f.playmats or {},
     hasScenarios = f.hasScenarios or false,
     scenarios = f.scenarios or {},
     scenarioCardBackId = f.scenarioCardBackId,
@@ -698,6 +726,9 @@ function GameDefinition.fromJson(t)
     tagGroups = mapJson(t.tagGroups, TagGroup.fromJson),
     tableColor = t.tableColor,
     playmatBorderColor = t.playmatBorderColor,
+    currentTurnColor = t.currentTurnColor,
+    playmatType = enumValue(t.playmatType, M.PlaymatType, "individual", "GameDefinition.playmatType"),
+    playmats = mapJson(t.playmats, PlaymatDefinition.fromJson),
     hasScenarios = t.hasScenarios == true,
     scenarios = mapJson(t.scenarios, Scenario.fromJson),
     scenarioCardBackId = t.scenarioCardBackId,
@@ -731,6 +762,9 @@ function GameDefinition.toJson(g)
   o.tagGroups = nonEmptyList(g.tagGroups, TagGroup.toJson)
   if g.tableColor then o.tableColor = g.tableColor end
   if g.playmatBorderColor then o.playmatBorderColor = g.playmatBorderColor end
+  if g.currentTurnColor then o.currentTurnColor = g.currentTurnColor end
+  o.playmatType = unlessDefault(g.playmatType, "individual")
+  o.playmats = nonEmptyList(g.playmats, PlaymatDefinition.toJson)
   if g.hasScenarios then o.hasScenarios = true end
   o.scenarios = nonEmptyList(g.scenarios, Scenario.toJson)
   if g.scenarioCardBackId then o.scenarioCardBackId = g.scenarioCardBackId end
@@ -942,7 +976,8 @@ local PlayerInfo = {}
 M.PlayerInfo = PlayerInfo
 
 function PlayerInfo.new(f)
-  return { id = f.id, name = f.name, role = f.role, color = f.color, connected = default(f.connected, true) }
+  return { id = f.id, name = f.name, role = f.role, color = f.color, connected = default(f.connected, true),
+    individualPlaymatOn = f.individualPlaymatOn or false, individualPlaymatIndex = f.individualPlaymatIndex or 0 }
 end
 
 function PlayerInfo.fromJson(t)
@@ -952,11 +987,15 @@ function PlayerInfo.fromJson(t)
     role = enumValue(requireField(t, "role", "PlayerInfo"), M.PlayerRole, nil, "PlayerInfo.role"),
     color = requireField(t, "color", "PlayerInfo"),
     connected = default(t.connected, true),
+    individualPlaymatOn = t.individualPlaymatOn == true,
+    individualPlaymatIndex = t.individualPlaymatIndex,
   })
 end
 
 function PlayerInfo.toJson(p)
-  return obj("id", p.id, "name", p.name, "role", p.role, "color", p.color, "connected", p.connected)
+  return obj("id", p.id, "name", p.name, "role", p.role, "color", p.color, "connected", p.connected,
+    "individualPlaymatOn", p.individualPlaymatOn or nil,
+    "individualPlaymatIndex", unlessDefault(p.individualPlaymatIndex, 0))
 end
 
 ---------------------------------------------------------------------------
@@ -1022,6 +1061,9 @@ function TableState.new(f)
     log = f.log or {},
     loadedZones = f.loadedZones or {},
     loadedScenarioIds = f.loadedScenarioIds or {},
+    sharedPlaymatOn = f.sharedPlaymatOn or false,
+    sharedPlaymatIndex = f.sharedPlaymatIndex or 0,
+    currentPlayerId = f.currentPlayerId,
   }
 end
 
@@ -1036,6 +1078,9 @@ function TableState.fromJson(t)
     log = mapJson(t.log, LogEntry.fromJson),
     loadedZones = mapJson(t.loadedZones, ZoneDefinition.fromJson),
     loadedScenarioIds = stringList(t.loadedScenarioIds),
+    sharedPlaymatOn = t.sharedPlaymatOn == true,
+    sharedPlaymatIndex = t.sharedPlaymatIndex,
+    currentPlayerId = t.currentPlayerId,
   })
 end
 
@@ -1049,7 +1094,10 @@ function TableState.toJson(s)
     "searches", nonEmptyList(s.searches, ActiveSearch.toJson),
     "log", nonEmptyList(s.log, LogEntry.toJson),
     "loadedZones", nonEmptyList(s.loadedZones, ZoneDefinition.toJson),
-    "loadedScenarioIds", nonEmptyList(s.loadedScenarioIds)
+    "loadedScenarioIds", nonEmptyList(s.loadedScenarioIds),
+    "sharedPlaymatOn", s.sharedPlaymatOn or nil,
+    "sharedPlaymatIndex", unlessDefault(s.sharedPlaymatIndex, 0),
+    "currentPlayerId", s.currentPlayerId
   )
 end
 

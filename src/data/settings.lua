@@ -21,6 +21,7 @@ S.keys = {
   selectionColor = "selection_color",
   feltColor = "felt_color",
   playmatBorderColor = "playmat_border_color",
+  currentTurnColor = "current_turn_color",
   feltTexture = "felt_texture_enabled",
 }
 

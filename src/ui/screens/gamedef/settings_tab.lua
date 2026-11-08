@@ -315,6 +315,18 @@ function T:draw(x, y, w, h)
     { variant = "text", disabled = game.playmatBorderColor == nil, id = "gs:playmatBorderColor:clear" }) then
     game.playmatBorderColor = nil
   end
+  yy = yy + ui.BUTTON_H + common.GAP
+
+  local turnArgb = (game.currentTurnColor and color.colorFromHex(game.currentTurnColor, tableSettings.defaultCurrentTurnColor))
+    or tableSettings.defaultCurrentTurnColor
+  local pickedTurn, th = colorpicker.field("gs:currentTurnColor", cx, yy, cw, turnArgb, { label = "Current Turn Color" })
+  if pickedTurn ~= turnArgb then game.currentTurnColor = "#" .. color.hexFromColor(pickedTurn) end
+  yy = yy + th + 4
+  clearLabel = "Clear current turn color"
+  if ui.button(clearLabel, cx - 12, yy, ui.buttonWidth(clearLabel), nil,
+    { variant = "text", disabled = game.currentTurnColor == nil, id = "gs:currentTurnColor:clear" }) then
+    game.currentTurnColor = nil
+  end
   yy = yy + ui.BUTTON_H + common.SECTION_GAP
 
   -- Tag groups.

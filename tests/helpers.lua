@@ -45,6 +45,7 @@ function H.state(f)
     widgets = f.widgets or {},
     searches = f.searches or {},
     log = f.log or {},
+    currentPlayerId = f.currentPlayerId,
   })
 end
 

@@ -89,7 +89,7 @@ local Editor = {}
 Editor.__index = Editor
 M.Editor = Editor
 
-local TAB_LABELS = { "General", "Zones", "Sets", "Cards" }
+local TAB_LABELS = { "General", "Playmats", "Zones", "Sets", "Cards" }
 
 -- Optional tabs appended to the bar, in this order, only while the game
 -- opts into them -- lazily built so a game that never turns one on never
@@ -113,12 +113,22 @@ function Editor:load(folderPath, game)
   self.game = game
   self.tabs = {
     require("src.ui.screens.gamedef.settings_tab").new(self),
+    require("src.ui.screens.gamedef.playmat_tab").new(self),
     require("src.ui.screens.gamedef.zones_tab").new(self),
     require("src.ui.screens.gamedef.sets_tab").new(self),
     require("src.ui.screens.gamedef.card_view_tab").new(self),
   }
   for _, ot in ipairs(OPTIONAL_TABS) do self[ot.field] = nil end
   resolver.clearCache()
+  self.rulebookOpen = false
+  self.rulebook = require("src.ui.screens.rulebook_viewer").new(game)
+end
+
+local function ctrlDown() return love.keyboard.isDown("lctrl", "rctrl") end
+
+function Editor:toggleRulebook()
+  self.rulebookOpen = not self.rulebookOpen
+  self.rulebook:toggle()
 end
 
 -- Optional tabs (Tokens, Scenarios, ...) are only in the bar while the
@@ -202,14 +212,22 @@ function Editor:update(dt)
   end
 end
 
-function Editor:keypressed(key)
+function Editor:keypressed(key, scancode, isrepeat)
+  if self.rulebookOpen then
+    if key == "r" and ctrlDown() and not isrepeat then self:toggleRulebook() end
+    return
+  end
+  if key == "r" and ctrlDown() and not isrepeat then
+    self:toggleRulebook()
+    return
+  end
   local t = self:activeTab()
   if t.keypressed then t:keypressed(key) end
 end
 
 function Editor:draw(x, y, w, h)
   local name = self.game.name
-  local busy = self.tabs[3].busy
+  local busy = self.tabs[4].busy
   local tbH = widgets.editorToolbar(x, y, w, name == "" and "Game Definition Editor" or name, {
     { icon = "note_add", tooltip = "New Game Definition...", id = "gde:new", disabled = busy, onClick = function()
       M.newGameDefinition(function(folder, game) self:load(folder, game) end)
@@ -217,6 +235,7 @@ function Editor:draw(x, y, w, h)
     { icon = "folder_open", tooltip = "Open Existing...", id = "gde:open", disabled = busy, onClick = function()
       M.openExistingGameDefinition(function(folder, game) self:load(folder, game) end)
     end },
+    { icon = "menu_book", tooltip = "Rulebook (Ctrl+R)", id = "gde:rulebook", disabled = busy, onClick = function() self:toggleRulebook() end },
     { icon = "build", tooltip = "Tools", id = "gde:tools", disabled = busy, onClick = function() self:openToolsMenu() end },
     { icon = "save", tooltip = "Save", id = "gde:save", disabled = busy, onClick = function() self:save() end },
   })
@@ -230,6 +249,7 @@ function Editor:draw(x, y, w, h)
   ui.pushClip(x, by, w, y + h - by)
   self:activeTab():draw(x, by, w, y + h - by)
   ui.popClip()
+  if self.rulebookOpen then ui.overlay(function() self.rulebook:draw(function() self:toggleRulebook() end) end) end
 end
 
 ---------------------------------------------------------------------------

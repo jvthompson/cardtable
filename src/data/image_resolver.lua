@@ -110,6 +110,8 @@ function R.mergeLocalImagePaths(remote, localGame)
     scenarioCardBackId = remote.scenarioCardBackId,
     usesTokens = remote.usesTokens,
     tokens = remote.tokens,
+    playmatType = remote.playmatType,
+    playmats = remote.playmats,
     sameOrientationForAll = remote.sameOrientationForAll,
   })
 end

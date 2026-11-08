@@ -198,10 +198,18 @@ function Session.dealFromZones(opts)
     end
   end
 
+  local firstPlayerId = opts.players[1] and opts.players[1].id
+  for _, player in ipairs(opts.players) do
+    if player.role == "host" then firstPlayerId = player.id break end
+  end
+
   return Session.new({
     game = game,
     localPlayerId = opts.localPlayerId,
-    initialState = models.TableState.new({ gameId = game.id, players = opts.players, cards = cards, widgets = widgets, revision = 0 }),
+    initialState = models.TableState.new({
+      gameId = game.id, players = opts.players, cards = cards, widgets = widgets, revision = 0,
+      currentPlayerId = firstPlayerId,
+    }),
     isLocalPractice = opts.isLocalPractice,
     now = opts.now,
   })
@@ -768,6 +776,32 @@ end
 function Session:applyRemoteState(newState)
   if newState.revision <= self.state.revision then return end
   self.state = newState
+  self:notify()
+end
+
+-- Table-wide shared playmat: host-only (gated in host_engine.lua), so no
+-- ownership check needed here.
+function Session:setSharedPlaymat(on, index)
+  self.state = util.copyWith(self.state, { sharedPlaymatOn = on, sharedPlaymatIndex = index,
+    revision = self.state.revision + 1 })
+  self:notify()
+end
+
+-- Cosmetic turn marker only -- no gameplay effect, so any player may hand it
+-- to anyone (not gated to the host like setSharedPlaymat).
+function Session:setCurrentPlayer(playerId)
+  self.state = util.copyWith(self.state, { currentPlayerId = playerId, revision = self.state.revision + 1 })
+  self:notify()
+end
+
+-- Per-player individual playmat: each player may only change their own
+-- (gated in host_engine.lua), so every other player entry is left untouched.
+function Session:setIndividualPlaymat(playerId, on, index)
+  local updated = {}
+  for i, p in ipairs(self.state.players) do
+    updated[i] = (p.id == playerId) and util.copyWith(p, { individualPlaymatOn = on, individualPlaymatIndex = index }) or p
+  end
+  self.state = util.copyWith(self.state, { players = updated, revision = self.state.revision + 1 })
   self:notify()
 end
 

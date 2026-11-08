@@ -255,6 +255,14 @@ function E:handleMessage(clientId, msg)
       s:loadDeckIntoZone(p.zoneId, models.DeckConfig.fromJson(p.deck), clientId)
     elseif t == "requestLoadScenario" then
       if clientId == self.ownerId then s:loadScenario(p.scenarioId, clientId) end
+    elseif t == "requestSetSharedPlaymat" then
+      if clientId == self.ownerId then s:setSharedPlaymat(p.on == true, num(p.index) or 0) end
+    elseif t == "requestSetCurrentPlayer" then
+      -- Cosmetic turn marker only -- any connected player may hand it to anyone.
+      s:setCurrentPlayer(p.playerId)
+    elseif t == "requestSetIndividualPlaymat" then
+      -- clientId is the sender's own player id, so this can only ever touch their own entry.
+      s:setIndividualPlaymat(clientId, p.on == true, num(p.index) or 0)
     elseif t == "cardDragPreview" then
       local ids = p.instanceIds or {}
       if #ids > 0 and self:allowedCard(ids[1], clientId) then

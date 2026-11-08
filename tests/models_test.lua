@@ -377,7 +377,7 @@ return function(t)
         cards = { models.CardInstance.new({ instanceId = "c", definitionId = "d", x = 0.5, y = 0.5, zIndex = 0, faceUp = true, zone = "hand", ownerId = "p" }) },
         widgets = { models.BoardWidgetInstance.new({ instanceId = "w", kind = "simpleCounter", x = 0, y = 0, zIndex = 0 }) },
         searches = { models.ActiveSearch.new({ searcherId = "p", targetType = "pile", targetId = "c" }) },
-        log = { models.LogEntry.new(1500, "P drew a card.") } })
+        log = { models.LogEntry.new(1500, "P drew a card.") }, currentPlayerId = "p" })
       t.eq((roundTrip(models.TableState, s)), s)
       local sg = models.SavedGame.new("2026-01-02T03:04:05.678", s)
       t.eq((roundTrip(models.SavedGame, sg)), sg)

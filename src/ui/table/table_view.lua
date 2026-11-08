@@ -407,18 +407,34 @@ end
 local PX_PER_INCH = CW / 2.5
 local PLAYMAT_W, PLAYMAT_H = 24 * PX_PER_INCH, 12 * PX_PER_INCH
 
--- The original (pre-playmat-sizing) single center marker, kept as-is.
+-- The original (pre-playmat-sizing) single center marker, used as a
+-- fallback size while an image is loading (or none is chosen).
 local SINGLE_MARKER_W, SINGLE_MARKER_H = 1280, 720
 
+-- A playmat's native size is its own image's pixel dimensions at 100% scale
+-- (a 1000x1000 image is 1000x1000 world units) -- falls back to fallbackW/H
+-- while the image hasn't loaded yet, or when there's no image chosen.
+local function playmatSize(matPath, scale, fallbackW, fallbackH)
+  local img = matPath and imageCache.get(matPath)
+  if img then
+    local iw, ih = img:getDimensions()
+    return iw * scale, ih * scale
+  end
+  return fallbackW * scale, fallbackH * scale
+end
+
 -- Draws a marker rect sized markW x markH with its top-left world corner at
--- (left, top).
-local function drawPlaymatRect(T, left, top, markW, markH)
+-- (left, top). matPath (optional) is the resolved image file to cover-fit
+-- into it; with none, just the border is drawn. rotated spins just the
+-- image 180 degrees in place (the border/stencil rect is symmetric under
+-- that rotation, so it's left alone) -- used for a far-seat player's own
+-- mat, so it reads right-side up from their side of the table.
+local function drawPlaymatRect(T, left, top, markW, markH, matPath, rotated)
   local x, y = V.worldToScreen(T, left, top)
   local w, h = markW * T.zoom, markH * T.zoom
   local r = 32 * T.zoom
-  local mat = T.playmatIndex >= 1 and T.playmats[T.playmatIndex]
-  if mat then
-    local img = imageCache.get(mat)
+  if matPath then
+    local img = imageCache.get(matPath)
     if img then
       -- Cover-fit, clipped to the rounded marker via a stencil.
       love.graphics.stencil(function() love.graphics.rectangle("fill", x, y, w, h, r, r) end, "replace", 1)
@@ -426,7 +442,14 @@ local function drawPlaymatRect(T, left, top, markW, markH)
       local iw, ih = img:getDimensions()
       local s = math.max(w / iw, h / ih)
       love.graphics.setColor(1, 1, 1, 0.5)
+      if rotated then
+        love.graphics.push()
+        love.graphics.translate(x + w / 2, y + h / 2)
+        love.graphics.rotate(math.pi)
+        love.graphics.translate(-(x + w / 2), -(y + h / 2))
+      end
       love.graphics.draw(img, x + (w - iw * s) / 2, y + (h - ih * s) / 2, 0, s, s)
+      if rotated then love.graphics.pop() end
       love.graphics.setStencilTest()
     end
   end
@@ -437,44 +460,108 @@ local function drawPlaymatRect(T, left, top, markW, markH)
   love.graphics.setLineWidth(1)
 end
 
--- Per-player markers (one of the modes cycled with F11): one playmat per player, grouped into
--- the same near/far rows used for hand bands, with 2x card-width padding
--- between mats side by side and 0.5x card-width padding between the near
--- and far rows.
-local MAT_GAP_X, MAT_GAP_Y = 2 * CW, CW / 2
+-- Per-player markers (one of the modes cycled with F11): one playmat per
+-- player, grouped into the same near/far rows used for hand bands. Mats
+-- can be any size (each player's own image at their own scale), so the
+-- layout is computed from actual sizes rather than a fixed slot, with two
+-- rules to guarantee mats never overlap:
+--  * Horizontally, within a row, the two mats nearest the table's vertical
+--    center line each have their inner edge flush against it (or, for an
+--    odd mat out, it's centered on the line) -- see rowLefts. Mats further
+--    out get a fixed gap from their neighbor.
+--  * Vertically, each mat's edge facing the table's horizontal center line
+--    is flush against it: the near (bottom) row's mats hang down from the
+--    line, the far (top) row's mats hang up from it -- so the two rows can
+--    never overlap regardless of how tall any individual mat is.
+local MAT_GAP_X = 2 * CW
 
--- Left (world-x) of each of `count` mats, evenly spaced and centered.
-local function rowMatLefts(count)
-  local rowW = count * PLAYMAT_W + (count - 1) * MAT_GAP_X
-  local startLeft = (WW - rowW) / 2
+-- Left (world-x) of each of #widths mats, placed edge-to-edge outward from
+-- the vertical center line (zero gap at the center split itself; MAT_GAP_X
+-- between every other neighboring pair).
+local function rowLefts(widths, gap)
+  local k = #widths
   local lefts = {}
-  for i = 0, count - 1 do lefts[#lefts + 1] = startLeft + i * (PLAYMAT_W + MAT_GAP_X) end
+  if k == 0 then return lefts end
+  if k % 2 == 1 then
+    local mid = (k + 1) / 2
+    lefts[mid] = WW / 2 - widths[mid] / 2
+    local x = lefts[mid]
+    for i = mid - 1, 1, -1 do
+      x = x - gap - widths[i]
+      lefts[i] = x
+    end
+    x = lefts[mid] + widths[mid]
+    for i = mid + 1, k do
+      x = x + gap
+      lefts[i] = x
+      x = x + widths[i]
+    end
+  else
+    local half = k / 2
+    local x = WW / 2
+    for i = half + 1, k do
+      lefts[i] = x
+      x = x + widths[i] + gap
+    end
+    x = WW / 2
+    for i = half, 1, -1 do
+      x = x - widths[i]
+      lefts[i] = x
+      x = x - gap
+    end
+  end
   return lefts
+end
+
+-- Each player's own mat, at their own chosen design and scale (or skipped
+-- entirely if that player has their playmats turned off -- though its size
+-- still counts toward the row's layout, so toggling one mat doesn't shift
+-- the others around it). resolveTop(h) gives the mat's world-y top edge
+-- for a mat of height h. rotated spins the far row's mats 180 degrees so
+-- each reads right-side up from that player's own seat across the table.
+local function drawPlayerRowMarkers(T, entries, players, resolveTop, rotated)
+  local widths, heights, paths = {}, {}, {}
+  for i, player in ipairs(players) do
+    local entry = entries[player.individualPlaymatIndex]
+    local scale = (entry and entry.scale) or 1.0
+    paths[i] = entry and entry.path
+    widths[i], heights[i] = playmatSize(paths[i], scale, PLAYMAT_W, PLAYMAT_H)
+  end
+  local lefts = rowLefts(widths, MAT_GAP_X)
+  for i, player in ipairs(players) do
+    if player.individualPlaymatOn then
+      drawPlaymatRect(T, lefts[i], resolveTop(heights[i]), widths[i], heights[i], paths[i], rotated)
+    end
+  end
 end
 
 local function drawPerPlayerMarkers(T)
   local rows = T.derived.rows
   local nTop, nBottom = #rows.topRow, #rows.bottomRow
   if nTop == 0 and nBottom == 0 then return end
-  local gapY = (nTop > 0 and nBottom > 0) and MAT_GAP_Y or 0
-  local blockH = (nTop > 0 and PLAYMAT_H or 0) + gapY + (nBottom > 0 and PLAYMAT_H or 0)
-  local topRowTop = (WH - blockH) / 2
-  if nTop > 0 then
-    for _, left in ipairs(rowMatLefts(nTop)) do drawPlaymatRect(T, left, topRowTop, PLAYMAT_W, PLAYMAT_H) end
-  end
-  if nBottom > 0 then
-    local bottomRowTop = nTop > 0 and (topRowTop + PLAYMAT_H + gapY) or topRowTop
-    for _, left in ipairs(rowMatLefts(nBottom)) do drawPlaymatRect(T, left, bottomRowTop, PLAYMAT_W, PLAYMAT_H) end
+  local entries = T:definedPlaymatEntries()
+  if nTop > 0 and nBottom > 0 then
+    drawPlayerRowMarkers(T, entries, rows.topRow, function(h) return WH / 2 - h end, true)
+    drawPlayerRowMarkers(T, entries, rows.bottomRow, function(h) return WH / 2 end)
+  else
+    -- Solo table: no opposing row to align against, so just center each
+    -- mat on the table's full vertical middle, as before (and unrotated --
+    -- there's no "across the table" to orient it for).
+    drawPlayerRowMarkers(T, entries, nTop > 0 and rows.topRow or rows.bottomRow, function(h) return (WH - h) / 2 end)
   end
 end
 
 local function drawCenterMarker(T)
-  if T.playmatMode == "none" then return end
-  if T.playmatMode == "perPlayer" then
+  if T.game.playmatType ~= "shared" then
     drawPerPlayerMarkers(T)
     return
   end
-  drawPlaymatRect(T, (WW - SINGLE_MARKER_W) / 2, (WH - SINGLE_MARKER_H) / 2, SINGLE_MARKER_W, SINGLE_MARKER_H)
+  if not T.state.sharedPlaymatOn then return end
+  local entry = T:definedPlaymatEntries()[T.state.sharedPlaymatIndex]
+  local scale = (entry and entry.scale) or 1.0
+  local path = entry and entry.path
+  local w, h = playmatSize(path, scale, SINGLE_MARKER_W, SINGLE_MARKER_H)
+  drawPlaymatRect(T, (WW - w) / 2, (WH - h) / 2, w, h, path)
 end
 
 local function drawArrow(fromX, fromY, toX, toY, col)
@@ -1124,6 +1211,10 @@ local function drawAvatarCorner(T, player, x, y)
   end
   love.graphics.push("all")
   local widgets = require("src.ui.kit.widgets")
+  if player.id == T.state.currentPlayerId then
+    local pad = 4
+    ui.rect("fill", ax - pad, ay - pad, CW + pad * 2, CW + pad * 2, 0, T:currentTurnColor())
+  end
   widgets.avatar(ax, ay, CW, player.color, source, (not isPractice) or isActive)
   love.graphics.pop()
   if alpha < 1 then

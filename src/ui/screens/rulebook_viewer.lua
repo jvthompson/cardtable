@@ -4,9 +4,10 @@
 -- PDF instead (continuous-scroll page images, no ToC -- the PDF carries
 -- its own structure). PDF takes precedence over Markdown for the
 -- rulebook's fixed filename pair; a guide is a single assigned file, so
--- its own extension decides. Shared by the table screen and the deck
--- editor (opened via Ctrl+R in both) -- the deck editor never has a
--- scenario loaded, so it only ever sees the rulebook.
+-- its own extension decides. Shared by the table screen, the deck editor,
+-- and the Game Definition Editor (opened via Ctrl+R in all three, plus a
+-- toolbar button in the Game Definition Editor) -- only the table screen
+-- ever has a scenario loaded, so the other two only ever see the rulebook.
 local ui = require("src.ui.kit.ui")
 local theme = require("src.ui.kit.theme")
 local overlays = require("src.ui.kit.overlays")
