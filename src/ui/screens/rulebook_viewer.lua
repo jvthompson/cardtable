@@ -1,13 +1,14 @@
--- Near-fullscreen viewer for a game's rulebook, and (while a scenario with
--- one loaded) its Scenario Guide -- either document can be Markdown (with
--- a table-of-contents sidebar built from its headings) or, when present,
--- PDF instead (continuous-scroll page images, no ToC -- the PDF carries
--- its own structure). PDF takes precedence over Markdown for the
--- rulebook's fixed filename pair; a guide is a single assigned file, so
--- its own extension decides. Shared by the table screen, the deck editor,
--- and the Game Definition Editor (opened via Ctrl+R in all three, plus a
--- toolbar button in the Game Definition Editor) -- only the table screen
--- ever has a scenario loaded, so the other two only ever see the rulebook.
+-- Near-fullscreen viewer for a game's documents (any PDF/Markdown file in
+-- its "_documents" folder, picked from a dropdown, with a file named
+-- "Rulebook" always sorted first), and (while a scenario with one loaded)
+-- its Scenario Guide -- either can be Markdown (with a table-of-contents
+-- sidebar built from its headings) or PDF (continuous-scroll page images,
+-- no ToC -- the PDF carries its own structure); a guide is a single
+-- assigned file, so its own extension decides. Shared by the table screen,
+-- the deck editor, and the Game Definition Editor (opened via Ctrl+R in
+-- all three, plus a toolbar button in the Game Definition Editor) -- only
+-- the table screen ever has a scenario loaded, so the other two only ever
+-- see the document picker.
 local ui = require("src.ui.kit.ui")
 local theme = require("src.ui.kit.theme")
 local overlays = require("src.ui.kit.overlays")
@@ -50,9 +51,10 @@ local SCROLL_THUMB_OPTS = { thumbAlpha = 0.6, thumbAlphaHover = 0.85 }
 -- drastic resize after opening can look slightly soft; acceptable for v1.
 local PDF_RENDER_WIDTH = 1600
 
-local DOC_OPTIONS = { { value = "rulebook", label = "Rulebook" }, { value = "guide", label = "Scenario Guide" } }
+local DOC_OPTIONS = { { value = "rulebook", label = "Documents" }, { value = "guide", label = "Scenario Guide" } }
 local DOC_TOGGLE_H = 36
-local DOC_TITLES = { rulebook = "Rulebook", guide = "Scenario Guide" }
+local DOC_TITLES = { rulebook = "Documents", guide = "Scenario Guide" }
+local DOC_DROPDOWN_W = 240
 
 -- Panel-width zoom: 1 = current default size, 2 = 150%, 3 = 200% (each
 -- capped to the same `sw - 40` margin everything else here maxes out at,
@@ -71,6 +73,8 @@ function RV.new(game)
   self.docs = {} -- "rulebook" / "guide" -> { path, kind, hasContent, blocks, pdfCache, pdfLayout, scrollId, scrollKey, pendingRestore }
   self.tocVisible = true
   self.zoomLevel = 1
+  self.selectedDoc = nil -- the currently chosen _documents filename (bare, with extension)
+  self.availableDocs = {} -- { {name, file}, ... }, refreshed every ensureLoaded()
   return self
 end
 
@@ -89,15 +93,37 @@ local function computePdfLayout(pointSizes, docW, gap)
 end
 RV._computePdfLayout = computePdfLayout
 
--- The rulebook's fixed filename pair, at the game's own root folder: PDF
--- wins when both exist.
-local function resolveRulebookPath(folder)
-  if not folder then return nil end
-  local pdfPath = fs.join(folder, "rulebook.pdf")
-  if fs.isFile(pdfPath) then return pdfPath, "pdf" end
-  local mdPath = fs.join(folder, "rulebook.md")
-  if fs.isFile(mdPath) then return mdPath, "md" end
-  return nil
+local function isRulebookName(name) return fs.stripExtension(name):lower() == "rulebook" end
+
+-- Every PDF/Markdown file directly inside <folder>/_documents: { name, file }
+-- (file == name here; no subfolder nesting). Sorted with a file named
+-- "Rulebook" (by base name, case-insensitive) always first, then the rest
+-- alphabetically by full filename -- no de-duplication across extensions,
+-- so e.g. both Rulebook.md and Rulebook.pdf can appear as separate entries.
+local function listDocuments(folder)
+  if not folder then return {} end
+  local docs = {}
+  for _, e in ipairs(fs.list(fs.join(folder, "_documents")) or {}) do
+    if not e.isDir then
+      local ext = fs.extension(e.name)
+      if ext == ".pdf" or ext == ".md" then docs[#docs + 1] = { name = e.name, file = e.name } end
+    end
+  end
+  table.sort(docs, function(a, b)
+    local aR, bR = isRulebookName(a.name), isRulebookName(b.name)
+    if aR ~= bR then return aR end
+    return a.name:lower() < b.name:lower()
+  end)
+  return docs
+end
+
+-- Resolves one chosen filename within <folder>/_documents; its own
+-- extension decides whether it's a PDF or Markdown.
+local function resolveDocumentPath(folder, file)
+  if not folder or not file then return nil end
+  local path = fs.join(folder, "_documents", file)
+  if not fs.isFile(path) then return nil end
+  return path, (fs.extension(path) == ".pdf" and "pdf" or "md")
 end
 
 -- A scenario's single assigned guide file, under the game's "_scenarios"
@@ -171,11 +197,27 @@ function RV:ensureDoc(key, path, kind, baseFolder, scrollKey)
   return d
 end
 
--- Resolves and (re)loads the game's own rulebook into self.docs.rulebook.
+-- Refreshes the available _documents listing, re-validates the current
+-- selection against it (defaulting to the first entry -- the Rulebook-named
+-- one, if any -- when there's no valid selection), and (re)loads it into
+-- self.docs.rulebook.
 function RV:ensureLoaded()
   local folder = self.game.folderPath
-  local path, kind = resolveRulebookPath(folder)
-  return self:ensureDoc("rulebook", path, kind, folder, self.game.id)
+  self.availableDocs = listDocuments(folder)
+  local stillValid = false
+  for _, d in ipairs(self.availableDocs) do if d.file == self.selectedDoc then stillValid = true end end
+  if not stillValid then self.selectedDoc = self.availableDocs[1] and self.availableDocs[1].file or nil end
+  local path, kind = resolveDocumentPath(folder, self.selectedDoc)
+  return self:ensureDoc("rulebook", path, kind, folder and fs.join(folder, "_documents"),
+    tostring(self.game.id) .. ":doc:" .. tostring(self.selectedDoc))
+end
+
+-- Switches the selected _documents file and reloads it immediately (so a
+-- caller can read self.docs.rulebook right after this returns, same frame).
+function RV:selectDocument(file)
+  if file == self.selectedDoc then return end
+  self.selectedDoc = file
+  self:ensureLoaded()
 end
 
 -- Resolves and (re)loads scenario's guide into self.docs.guide, or drops
@@ -308,16 +350,25 @@ function RV:draw(onClose, scenario)
   local x, y, w, h = panel.draw("rulebook", pw, ph, DOC_TITLES[self.activeDoc], onClose, nil, leading)
   x, y, w, h = x + CONTENT_PAD, y + CONTENT_PAD, w - 2 * CONTENT_PAD, h - 2 * CONTENT_PAD
 
+  local rowX = x
   if guideAvailable then
     self.activeDoc = ui.segmented("rulebook:doctoggle", x, y, 280, DOC_OPTIONS, self.activeDoc, { h = DOC_TOGGLE_H })
     doc = self.docs[self.activeDoc]
+    rowX = x + 280 + 12
+  end
+  if self.activeDoc == "rulebook" and #self.availableDocs > 0 then
+    local options = {}
+    for _, d in ipairs(self.availableDocs) do options[#options + 1] = { value = d.file, label = d.name } end
+    local newSelected = ui.dropdown("rulebook:docselect", rowX, y, DOC_DROPDOWN_W, options, self.selectedDoc, { h = DOC_TOGGLE_H })
+    self:selectDocument(newSelected)
+    doc = self.docs.rulebook
   end
   self.zoomLevel = ui.segmented("rulebook:zoom", x + w - ZOOM_W, y, ZOOM_W, ZOOM_OPTIONS, self.zoomLevel, { h = DOC_TOGGLE_H })
   y, h = y + DOC_TOGGLE_H + 12, h - DOC_TOGGLE_H - 12
 
   if not doc.hasContent then
     local msg = self.activeDoc == "guide" and "This scenario doesn't have a guide yet."
-      or "This game doesn't have a rulebook yet."
+      or "This game doesn't have any documents yet."
     ui.text(msg, x, y, { w = w, h = h, align = "center", valign = "middle", color = EMPTY_TEXT_COLOR })
     theme.c = savedTheme
     return

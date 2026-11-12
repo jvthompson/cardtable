@@ -59,7 +59,7 @@ Hotkeys act on the card (or token, for Q / E) under the cursor and fire once per
 | F12 | Cycle through the playmats defined on the game's Playmats tab. For a shared playmat, host only; for individual playmats, each player controls their own | Persists across sessions |
 | L | Open/close the Game Log (with a Save Log button) | |
 | C | Open/close the chat panel (server games only) | |
-| Ctrl + R | Open/close the Rulebook viewer (if the game has a rulebook.md), with a collapsible table-of-contents sidebar. Also works in the Deck Editor and the Game Definition Editor. | |
+| Ctrl + R | Open/close the Documents viewer (if the game has any PDF/Markdown file in its _documents folder), with a document picker and a collapsible table-of-contents sidebar. Also works in the Deck Editor and the Game Definition Editor. | |
 | Esc | Clear the selection; with nothing selected, open/close the Game Menu (save game, settings, controls, kick a player, leave/end game) | |
 | Ctrl (while dropping a token) | Duplicate the token instead of moving it | Token widgets |
 
@@ -105,10 +105,10 @@ Your hand is drawn as a fan of cards along the bottom of the screen, and opponen
 | Right-click a card in the pool | Remove one copy |
 | Click a card in the deck list | Remove one copy |
 | Hover | Preview the card |
-| Ctrl + R | Open/close the Rulebook viewer |
+| Ctrl + R | Open/close the Documents viewer |
 
 ## Game Definition Editor
 
 | Action | Effect |
 |--------|--------|
-| Rulebook toolbar button, or Ctrl + R | Open/close the Rulebook viewer (if the game has a rulebook.md or rulebook.pdf) |
+| Rulebook toolbar button, or Ctrl + R | Open/close the Documents viewer (if the game has any PDF/Markdown file in its _documents folder) |
