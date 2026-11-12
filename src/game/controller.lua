@@ -73,9 +73,10 @@ end
 
 function Host:rotateWidget(id, clockwise, step) self.session:rotateWidget(id, clockwise, step) end
 function Host:flipWidget(id) self.session:flipWidget(id) end
+function Host:sendWidgetToBack(id) self.session:sendWidgetToBack(id) end
 
-function Host:bringToFront(rootId)
-  if self:isOwnedOrUnowned(rootId) then self.session:bringToFront(rootId) end
+function Host:sendToBack(rootId)
+  if self:isOwnedOrUnowned(rootId) then self.session:sendToBack(rootId) end
 end
 
 function Host:flipCard(id)
@@ -122,6 +123,7 @@ function Host:moveWidget(id, x, y) self.session:moveWidget(id, x, y) end
 function Host:setWidgetValue(id, value) self.session:setWidgetValue(id, value, self:acting()) end
 function Host:deleteWidget(id) self.session:deleteWidget(id) end
 function Host:setWidgetColors(id, bg, text) self.session:setWidgetColors(id, bg, text) end
+function Host:setWidgetText(id, text, textColor) self.session:setWidgetText(id, text, textColor) end
 function Host:setWidgetSize(id, sizeOverride) self.session:setWidgetSize(id, sizeOverride) end
 function Host:duplicateWidget(srcId, newId, x, y) self.session:duplicateWidget(srcId, newId, x, y) end
 function Host:attachWidgetToCard(id, cardId, x, y) self.session:attachWidgetToCard(id, cardId, x, y, self:acting()) end
@@ -184,7 +186,8 @@ function Client:rotateWidget(id, clockwise, step)
   self.send("requestRotateWidget", p("instanceId", id, "clockwise", clockwise, "step", step))
 end
 function Client:flipWidget(id) self.send("requestFlipWidget", p("instanceId", id)) end
-function Client:bringToFront(rootId) self.send("requestBringToFront", p("rootInstanceId", rootId)) end
+function Client:sendWidgetToBack(id) self.send("requestSendWidgetToBack", p("instanceId", id)) end
+function Client:sendToBack(rootId) self.send("requestSendToBack", p("rootInstanceId", rootId)) end
 function Client:flipCard(id) self.send("requestFlip", p("instanceId", id)) end
 
 function Client:giveCard(id, newOwnerId)
@@ -230,6 +233,10 @@ function Client:deleteWidget(id) self.send("requestDeleteWidget", p("instanceId"
 
 function Client:setWidgetColors(id, bg, text)
   self.send("requestSetWidgetColors", p("instanceId", id, "backgroundColor", bg, "textColor", text))
+end
+
+function Client:setWidgetText(id, text, textColor)
+  self.send("requestSetWidgetText", p("instanceId", id, "text", text, "textColor", textColor))
 end
 
 function Client:setWidgetSize(id, sizeOverride)

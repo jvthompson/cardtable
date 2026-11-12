@@ -343,8 +343,13 @@ function Session:flipWidget(instanceId)
   self:notify()
 end
 
-function Session:bringToFront(rootInstanceId)
-  self.state = A.bringToFront(self.state, rootInstanceId)
+function Session:sendWidgetToBack(instanceId)
+  self.state = A.sendWidgetToBack(self.state, instanceId)
+  self:notify()
+end
+
+function Session:sendToBack(rootInstanceId)
+  self.state = A.sendToBack(self.state, rootInstanceId)
   self:notify()
 end
 
@@ -621,7 +626,10 @@ end
 ---------------------------------------------------------------------------
 
 function Session:createWidget(instanceId, kind, x, y, actingPlayerId, imagePath)
-  self.state = A.createWidget(self.state, instanceId, kind, x, y, kind == "deckBuilder" and actingPlayerId or nil, imagePath)
+  -- Card tokens are owned by whoever spawned them (like deckBuilder),
+  -- unlike plain color/image tokens, which stay free for anyone to use.
+  local ownerId = (kind == "deckBuilder" or kind == "cardToken") and actingPlayerId or nil
+  self.state = A.createWidget(self.state, instanceId, kind, x, y, ownerId, imagePath)
   self:notify()
 end
 
@@ -656,6 +664,11 @@ end
 
 function Session:setWidgetColors(instanceId, backgroundColor, textColor)
   self.state = A.setWidgetColors(self.state, instanceId, backgroundColor, textColor)
+  self:notify()
+end
+
+function Session:setWidgetText(instanceId, text, textColor)
+  self.state = A.setWidgetText(self.state, instanceId, text, textColor)
   self:notify()
 end
 

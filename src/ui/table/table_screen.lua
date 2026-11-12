@@ -12,7 +12,9 @@
 --       available so a game can still pull cards from it mid-session),
 --       spectator (watch only: no drags, menus or card hotkeys),
 --       sc (src/net/server_client.lua) for the in-game chat panel (C key);
---       LAN host/join and practice games don't pass it, so chat stays off
+--       LAN host/join games don't pass it, so chat stays off there. Practice
+--       games have no sc either but still get the panel, run purely locally
+--       (see isChatAvailable/drawChat) for /flip and /roll.
 local ui = require("src.ui.kit.ui")
 local theme = require("src.ui.kit.theme")
 local overlays = require("src.ui.kit.overlays")
@@ -50,6 +52,7 @@ local PREVIEW_THROTTLE = 0.05
 local PAN_SPEED = 600
 local MIN_ZOOM, MAX_ZOOM = 0.5, 2.5
 local COLOR_TOKEN_WIDGET = { kind = "token", backgroundColor = models.defaultBoardWidgetBackgroundColor }
+local CARD_TOKEN_WIDGET = { kind = "cardToken", backgroundColor = models.defaultBoardWidgetBackgroundColor }
 
 function T.new(opts)
   local self = setmetatable({}, T)
@@ -67,6 +70,7 @@ function T.new(opts)
   self.tokenPickerOpen = false
   self.rulebookOpen = false
   self.chatOpen, self.chatAnim, self.chatText, self.seenChat = false, 0, "", 0
+  self.localChat = {} -- practice-mode chat log when there's no sc (see drawChat)
   self.rulebook = require("src.ui.screens.rulebook_viewer").new(self.game)
   self.lastPreviewAt = 0
   self:seedPlaymat()
@@ -135,6 +139,14 @@ function T:derive()
   end)
   D.sortedRoots = roots
   D.pickupCandidates = util.filter(D.tops, function(c) return c.ownerId == nil or c.ownerId == acting end)
+  -- A loose card token is treated like a 1-card pile for group-drag
+  -- purposes: it can be picked up along with (or lift) overlapping cards
+  -- and other card tokens stacked on it -- see T:pickupGroup.
+  for _, w in ipairs(state.widgets) do
+    if w.kind == "cardToken" and (w.ownerId == nil or w.ownerId == acting) then
+      D.pickupCandidates[#D.pickupCandidates + 1] = w
+    end
+  end
   for _, s in ipairs(state.searches) do
     if s.targetType == "pile" then D.pileSearched[s.targetId] = true end
   end
@@ -228,8 +240,8 @@ end
 
 -- A token that can be selected: yours and loose on the table.
 function T:isSelectableToken(w)
-  return w ~= nil and (w.kind == "token" or w.kind == "imageToken") and w.zoneId == nil and w.attachedCardId == nil
-    and w.ownerId == self.session:actingPlayerId()
+  return w ~= nil and (w.kind == "token" or w.kind == "imageToken" or w.kind == "cardToken") and w.zoneId == nil
+    and w.attachedCardId == nil and w.ownerId == self.session:actingPlayerId()
 end
 
 -- Drops whatever left the table or changed hands, then works out which
@@ -362,6 +374,29 @@ function T:moveItemsBy(rootIds, tokenIds, dwx, dwy)
       C:moveWidget(id, V.worldToCanonical(self, selection.clampWorldCenter(wx + dwx, wy + dwy, ww / 2, wh / 2)))
     end
   end
+end
+
+-- Moves a mixed group of cards and loose cardToken widgets (from
+-- pickupGroup) together by the delta from `origin`'s position to the
+-- drop point (cx, cy). origin is whichever item the drag actually started
+-- from -- a card (dragging a pile with Alt also lifts a card token sitting
+-- on it) or a card token (dragging it with Alt lifts cards stacked on it).
+function T:moveMixedGroupBy(group, origin, cx, cy)
+  local roots, seenRoots, tokenIds = {}, {}, {}
+  for _, item in ipairs(group) do
+    if item.kind == "cardToken" then
+      tokenIds[#tokenIds + 1] = item.instanceId
+    else
+      local rootId = stacks.rootIdOf(self.state.cards, item)
+      if not seenRoots[rootId] then
+        seenRoots[rootId] = true
+        roots[#roots + 1] = rootId
+      end
+    end
+  end
+  local ox, oy = V.canonicalToWorld(self, origin.x, origin.y)
+  local wx, wy = V.screenToWorld(self, cx, cy)
+  self:moveItemsBy(roots, tokenIds, wx - ox, wy - oy)
 end
 
 -- Sends cards to a zone keeping their order (bottom-most first; to the
@@ -591,15 +626,22 @@ function T:rotateHovered(clockwise, step)
   sound.play(clockwise and "tap" or "untap")
 end
 
-function T:bringHoveredToFront()
+function T:sendHoveredToBack()
   local roots = self:hoveredSelectionRoots()
   if roots then
-    for _, rootId in ipairs(roots) do self.controller:bringToFront(rootId) end
+    for _, rootId in ipairs(roots) do self.controller:sendToBack(rootId) end
     return
   end
   local c = self:actableHoveredTableCard()
-  if not c then return end
-  self.controller:bringToFront(stacks.rootIdOf(self.state.cards, c))
+  if c then
+    self.controller:sendToBack(stacks.rootIdOf(self.state.cards, c))
+    return
+  end
+  -- A card token shares the card layer's z-order, so it can be sent to
+  -- back the same way a card can (other token kinds always render above
+  -- that layer regardless of zIndex, so Z has no effect on them).
+  local w = self:hoveredToken()
+  if w and w.kind == "cardToken" then self.controller:sendWidgetToBack(w.instanceId) end
 end
 
 function T:flipHovered()
@@ -626,24 +668,35 @@ function T:flipHovered()
   self.controller:flipWidget(w.instanceId)
 end
 
+-- "X": discards a hovered card, or deletes a hovered token outright (tokens
+-- have no discard pile to go to -- mirrors the right-click "Delete" item).
 function T:discardHovered()
   local c = self:actableHoveredTableCard()
-  if not c then return end
-  local zoneId = self:localDiscardZoneId(c.ownerId)
-  if not zoneId then return end
-  if self:hoveredSelectionRoots() then
-    for _, sc in ipairs(self:selectedCards()) do
-      if sc.instanceId == c.instanceId then
-        self:startDiscardFlight(sc, zoneId)
-      else
-        self.controller:returnToZone(sc.instanceId, zoneId, false)
+  if c then
+    local zoneId = self:localDiscardZoneId(c.ownerId)
+    if not zoneId then return end
+    if self:hoveredSelectionRoots() then
+      for _, sc in ipairs(self:selectedCards()) do
+        if sc.instanceId == c.instanceId then
+          self:startDiscardFlight(sc, zoneId)
+        else
+          self.controller:returnToZone(sc.instanceId, zoneId, false)
+        end
       end
+      self.hoveredId = nil
+      return
     end
+    self:startDiscardFlight(c, zoneId)
     self.hoveredId = nil
     return
   end
-  self:startDiscardFlight(c, zoneId)
-  self.hoveredId = nil
+  local tokenIds = self:hoveredSelectedTokenIds()
+  if tokenIds then
+    for _, id in ipairs(tokenIds) do self.controller:deleteWidget(id) end
+    return
+  end
+  local w = self:hoveredToken()
+  if w then self.controller:deleteWidget(w.instanceId) end
 end
 
 function T:startDiscardFlight(card, zoneId)
@@ -774,7 +827,7 @@ function T:keypressed(key, _, isrepeat)
   elseif key == "e" then self:rotateHovered(true, ctrlDown() and 0.5 or 1)
   elseif key == "x" then self:discardHovered()
   elseif key == "f" then self:flipHovered()
-  elseif key == "z" then self:bringHoveredToFront()
+  elseif key == "z" then self:sendHoveredToBack()
   elseif key == "home" or key == "h" then
     self.camX, self.camY, self.zoom = 0, 0, 1
   elseif key == "f1" then self.bordersHidden = not self.bordersHidden
@@ -783,9 +836,16 @@ function T:keypressed(key, _, isrepeat)
   elseif key == "f12" then self:cyclePlaymat()
   elseif key == "l" then self:toggleLog()
   elseif key == "r" and ctrlDown() then self:toggleRulebook()
-  elseif key == "c" and self.sc then self:toggleChat()
+  elseif key == "c" and self:isChatAvailable() then self:toggleChat()
   elseif DRAW_KEYS[key] then self:drawNFromHovered(DRAW_KEYS[key])
   end
+end
+
+-- Server games chat through sc (src/net/server_client.lua); practice games
+-- have no server but still get a local-only panel for /flip and /roll (see
+-- drawChat) -- LAN host/join games have neither and stay without chat.
+function T:isChatAvailable()
+  return self.sc ~= nil or self.session.isLocalPractice
 end
 
 function T:toggleChat()
@@ -882,6 +942,27 @@ function T:findStackTarget(excluding, wx, wy)
   return best
 end
 
+-- Like findStackTarget, but also accepts a loose cardToken widget as a
+-- valid attach target (a card token can anchor other tokens even though
+-- it never attaches to a card itself -- see T:sourceFor).
+function T:findAttachTarget(excluding, wx, wy)
+  local target = self:findStackTarget(excluding, wx, wy)
+  if target then return target end
+  local acting = self.session:actingPlayerId()
+  local best, bestDist
+  for _, w in ipairs(self.state.widgets) do
+    local excluded = type(excluding) == "table" and excluding[w.instanceId] or w.instanceId == excluding
+    -- Only the owner's own card tokens are valid anchors -- a non-owner
+    -- can't attach anything to someone else's card token either.
+    if w.kind == "cardToken" and w.ownerId == acting and not excluded then
+      local cx, cy = V.canonicalToWorld(self, w.x, w.y)
+      local d = math.sqrt((cx - wx) ^ 2 + (cy - wy) ^ 2)
+      if d < STACK_HIT_RADIUS and (not bestDist or d < bestDist) then best, bestDist = w, d end
+    end
+  end
+  return best
+end
+
 -- Cards visually stacked on top of `dragged` (transitive overlap with a
 -- higher zIndex), sorted by zIndex. Overlap is measured in world pixels.
 function T:pickupGroup(dragged)
@@ -913,7 +994,9 @@ end
 ---------------------------------------------------------------------------
 
 -- center: the dropped card's screen center.
-function T:handleCardDrop(instanceId, cx, cy)
+-- group: the cards to move together, latched at drag start (see startDrag);
+-- defaults to a live alt re-check for callers outside the drag lifecycle.
+function T:handleCardDrop(instanceId, cx, cy, group)
   self.controller:endCardDragPreview()
   local origin = self.derived.cardsById[instanceId]
   local originZone = origin and origin.zone
@@ -923,20 +1006,10 @@ function T:handleCardDrop(instanceId, cx, cy)
     if c.instanceId == instanceId then dragged = c end
   end
   if dragged then
-    local group = alt and self:pickupGroup(dragged) or { dragged }
+    group = group or (alt and self:pickupGroup(dragged) or { dragged })
     if #group > 1 then
       if not self:isOverTable(cx, cy) then return end
-      local roots, seen = {}, {}
-      for _, c in ipairs(group) do
-        local rootId = stacks.rootIdOf(self.state.cards, c)
-        if not seen[rootId] then
-          seen[rootId] = true
-          roots[#roots + 1] = rootId
-        end
-      end
-      local ox, oy = V.canonicalToWorld(self, dragged.x, dragged.y)
-      local wx, wy = V.screenToWorld(self, cx, cy)
-      self:moveItemsBy(roots, {}, wx - ox, wy - oy)
+      self:moveMixedGroupBy(group, dragged, cx, cy)
       return
     end
   end
@@ -1067,6 +1140,20 @@ function T:handleWidgetDrop(widgetId, kind, cx, cy)
   self.controller:moveWidget(widgetId, fx, fy)
 end
 
+-- A card token's own drop: with Alt, a group of cards/other card tokens
+-- picked up on top of it (see pickupGroup) moves together; otherwise it's
+-- a plain move (never seeks a card to attach to, never a hand/zone).
+function T:handleCardTokenDrop(instanceId, cx, cy, group)
+  if group and #group > 1 then
+    if not self:isOverTable(cx, cy) then return end
+    local origin = models.TableState.widgetById(self.state, instanceId)
+    if not origin then return end
+    self:moveMixedGroupBy(group, origin, cx, cy)
+    return
+  end
+  self:handleWidgetDrop(instanceId, "cardToken", cx, cy)
+end
+
 -- The bag widget docked to zoneId, for the owner this drop would count as
 -- (the acting player for an owned zone, anyone for a shared one) -- or nil.
 function T:bagWidgetForDrop(zoneId)
@@ -1087,7 +1174,7 @@ function T:handleTokenDrop(widgetId, kind, cx, cy)
   end
   local ctrl = love.keyboard.isDown("lctrl", "rctrl")
   local wx, wy = V.screenToWorld(self, cx, cy)
-  local target = self:findStackTarget(widgetId, wx, wy)
+  local target = self:findAttachTarget(widgetId, wx, wy)
   local ww, wh = V.widgetSize(self, kind)
   local fx, fy = V.screenToCanonicalClamped(self, cx, cy, ww / 2, wh / 2)
   if ctrl then
@@ -1134,6 +1221,13 @@ function T:handleNewTokenDrop(cx, cy)
   local ww, wh = V.widgetSize(self, "token")
   local fx, fy = V.screenToCanonicalClamped(self, cx, cy, ww / 2, wh / 2)
   self.controller:createWidget(uuid.v4(), "token", fx, fy)
+end
+
+function T:handleNewCardTokenDrop(cx, cy)
+  if not self:isOverTable(cx, cy) then return end
+  local ww, wh = V.widgetSize(self, "cardToken")
+  local fx, fy = V.screenToCanonicalClamped(self, cx, cy, ww / 2, wh / 2)
+  self.controller:createWidget(uuid.v4(), "cardToken", fx, fy)
 end
 
 ---------------------------------------------------------------------------
@@ -1195,8 +1289,23 @@ function T:startDrag()
       for _, c in ipairs(d.group) do d.groupIds[c.instanceId] = true end
     end
     d.angle = src.angle or 0
+    -- Latched at drag start so releasing alt mid-drag doesn't change which
+    -- cards move when the mouse is released (see handleCardDrop/endDrag).
+    d.altDown = self.altDown
     self.drag = d
     self:sendCardPreview(true)
+    return
+  end
+  if src.kind == "cardToken" then
+    local w = src.widget
+    d.widgetId = w.instanceId
+    d.group = { w }
+    if self.altDown then d.group = self:pickupGroup(w) end
+    if #d.group > 1 then
+      d.groupIds = {}
+      for _, item in ipairs(d.group) do d.groupIds[item.instanceId] = true end
+    end
+    self.drag = d
     return
   end
   if src.kind == "widget" or src.kind == "token" then d.widgetId = src.widget.instanceId end
@@ -1240,27 +1349,79 @@ function T:endDrag()
   local cx, cy = mx + d.grabX, my + d.grabY
   local src = d.src
   if d.kind == "card" then
-    self:handleCardDrop(d.primaryId, cx, cy)
+    self:handleCardDrop(d.primaryId, cx, cy, d.group)
   elseif d.kind == "pile" then
-    if love.keyboard.isDown("lalt", "ralt") then
+    if d.altDown then
       self:handlePileDrop(src.rootId, src.cards, cx, cy)
     else
-      self:handleCardDrop(d.primaryId, cx, cy)
+      self:handleCardDrop(d.primaryId, cx, cy, d.group)
     end
   elseif d.kind == "widget" then
     self:handleWidgetDrop(src.widget.instanceId, src.widget.kind, cx, cy)
   elseif d.kind == "token" then
     self:handleTokenDrop(src.widget.instanceId, src.widget.kind, cx, cy)
+  elseif d.kind == "cardToken" then
+    self:handleCardTokenDrop(d.widgetId, cx, cy, d.group)
   elseif d.kind == "library" then
     self:handleLibraryDrop(src.definitionId, cx, cy)
   elseif d.kind == "imageToken" then
     self:handleImageTokenDrop(src.imageFile, cx, cy)
   elseif d.kind == "newToken" then
     self:handleNewTokenDrop(cx, cy)
+  elseif d.kind == "newCardToken" then
+    self:handleNewCardTokenDrop(cx, cy)
   elseif d.kind == "revealedBagToken" then
     self:handleRevealedBagTokenDrop(src.widget.instanceId, src.slotId, src.imagePath, cx, cy)
   elseif d.kind == "selection" then
     self:handleSelectionDrop(d, cx, cy)
+  end
+end
+
+-- Right-click during a drag cancels it: nothing is moved (the drag never
+-- committed any state -- only drop handlers do, via endDrag), so this just
+-- drops the in-progress drag and clears any card-drag preview sent to peers.
+function T:cancelDrag()
+  local d = self.drag
+  self.drag = nil
+  if not d then return end
+  if d.primaryId then self.controller:endCardDragPreview() end
+end
+
+-- Draws a mixed group of cards and card tokens (from pickupGroup), each
+-- offset from (cx, cy) by its own distance from (px, py) -- the dragged
+-- primary's screen position.
+function T:drawMixedGroup(group, px, py, cx, cy, s)
+  for _, item in ipairs(group) do
+    local x, y = V.toScreen(self, item.x, item.y)
+    if item.kind == "cardToken" then
+      self:drawWidgetFace(item, cx + x - px, cy + y - py, s)
+    else
+      local angle = V.cardTurns(self, item, self:cardFacesAwayFromMe(item.ownerId)) * 2 * math.pi
+      CR.draw({ def = V.def(self, item), faceUp = item.faceUp, cx = cx + x - px, cy = cy + y - py, scale = s,
+        angle = angle, cardBacks = self.game.cardBacks, scenarioCardBackId = self.game.scenarioCardBackId })
+    end
+  end
+end
+
+-- Draws widgets attached to any member of a dragged group (keyed by
+-- instance id in groupIds) riding along with it.
+function T:drawGroupRiders(groupIds, px, py, cx, cy, s)
+  for _, w in ipairs(self.state.widgets) do
+    if w.attachedCardId and groupIds[w.attachedCardId] then
+      local wx, wy = V.toScreen(self, w.x, w.y)
+      self:drawWidgetFace(w, cx + wx - px, cy + wy - py, s)
+    end
+  end
+end
+
+-- Draws widgets attached to a single dragged anchor (e.g. a card token)
+-- riding along with it.
+function T:drawAnchorRiders(anchorId, ax, ay, cx, cy, s)
+  for _, w in ipairs(self.state.widgets) do
+    if w.attachedCardId == anchorId then
+      local wx, wy = V.toScreen(self, w.x, w.y)
+      self:drawWidgetFace(w, cx + wx - ax, cy + wy - ay, s)
+    end
   end
 end
 
@@ -1279,21 +1440,22 @@ function T:drawDragFeedback()
         if c.instanceId == d.primaryId then primary = c end
       end
       local px, py = V.toScreen(self, primary.x, primary.y)
-      for _, c in ipairs(d.group) do
-        local x, y = V.toScreen(self, c.x, c.y)
-        CR.draw({ def = V.def(self, c), faceUp = c.faceUp, cx = cx + x - px, cy = cy + y - py, scale = s, cardBacks = self.game.cardBacks, scenarioCardBackId = self.game.scenarioCardBackId })
-      end
-      -- Attached widgets ride along.
-      for _, w in ipairs(self.state.widgets) do
-        if w.attachedCardId and d.groupIds[w.attachedCardId] then
-          local wx, wy = V.toScreen(self, w.x, w.y)
-          self:drawWidgetFace(w, cx + wx - px, cy + wy - py, s)
-        end
-      end
+      self:drawMixedGroup(d.group, px, py, cx, cy, s)
+      self:drawGroupRiders(d.groupIds, px, py, cx, cy, s)
     else
       local c = d.group[1]
       CR.draw({ def = V.def(self, c), faceUp = c.faceUp or d.src.forceFaceUp, cx = cx, cy = cy, scale = s, angle = d.angle,
         border = d.src.border, cardBacks = self.game.cardBacks, scenarioCardBackId = self.game.scenarioCardBackId })
+    end
+  elseif d.kind == "cardToken" then
+    if #d.group > 1 then
+      local px, py = V.toScreen(self, d.src.widget.x, d.src.widget.y)
+      self:drawMixedGroup(d.group, px, py, cx, cy, s)
+      self:drawGroupRiders(d.groupIds, px, py, cx, cy, s)
+    else
+      self:drawWidgetFace(d.src.widget, cx, cy, s)
+      local ax, ay = V.toScreen(self, d.src.widget.x, d.src.widget.y)
+      self:drawAnchorRiders(d.src.widget.instanceId, ax, ay, cx, cy, s)
     end
   elseif d.kind == "selection" then
     -- Everything keeps its offset from the anchor, at table size.
@@ -1315,6 +1477,8 @@ function T:drawDragFeedback()
     end
   elseif d.kind == "widget" or d.kind == "token" then
     self:drawWidgetFace(d.src.widget, cx, cy, s)
+  elseif d.kind == "newCardToken" then
+    self:drawWidgetFace(CARD_TOKEN_WIDGET, cx, cy, s)
   elseif d.kind == "library" then
     CR.draw({ def = d.src.def, faceUp = true, cx = cx, cy = cy, cardBacks = self.game.cardBacks, scenarioCardBackId = self.game.scenarioCardBackId })
   elseif d.kind == "imageToken" then
@@ -1332,6 +1496,8 @@ function T:drawWidgetFace(w, cx, cy, s)
     V.counterFace(self, w, cx - ww * s / 2, cy - wh * s / 2, ww * s, 1)
   elseif w.kind == "token" or w.kind == "imageToken" then
     V.tokenFace(self, w, cx, cy, ww * s, 1)
+  elseif w.kind == "cardToken" then
+    V.cardTokenFace(self, w, cx, cy, ww * s, wh * s, 1)
   elseif w.kind == "packGenerator" then
     V.packFace(self, w, cx - ww * s / 2, cy - wh * s / 2, ww * s, 1)
   elseif w.kind == "deckBuilder" then
@@ -1550,8 +1716,11 @@ function T:openItemMenu(item, mx, my)
     local menu = {}
     if item.widget.kind ~= "imageToken" then
       menu[#menu + 1] = { label = "Set Color", onSelect = function() self:promptSetTokenColor(item.widget) end }
+      menu[#menu + 1] = { label = "Update Text", onSelect = function() self:promptSetTokenText(item.widget) end }
     end
-    menu[#menu + 1] = { label = "Size", submenu = self:tokenSizeMenuItems(item.widget) }
+    if item.widget.kind ~= "cardToken" then
+      menu[#menu + 1] = { label = "Size", submenu = self:tokenSizeMenuItems(item.widget) }
+    end
     menu[#menu + 1] = { label = "Flip", onSelect = function() C:flipWidget(item.widget.instanceId) end }
     menu[#menu + 1] = { label = "Delete", onSelect = function() C:deleteWidget(item.widget.instanceId) end }
     overlays.menu(mx, my, menu)
@@ -1645,6 +1814,40 @@ function T:promptSetTokenColor(w)
     end,
     actions = { { label = "Cancel", variant = "text" },
       { label = "Set", variant = "filled", onClick = function() self.controller:setWidgetColors(w.instanceId, st.color, w.textColor) end } },
+  })
+end
+
+-- A color token's optional single-line label: text defaults to empty (no
+-- label) and is never wrapped or shrunk -- see V.tokenFace for the overflow
+-- rendering.
+function T:promptSetTokenText(w)
+  local st = { text = w.text or "", color = w.textColor }
+  local isCard = w.kind == "cardToken"
+  overlays.dialog({
+    title = "Set Text", width = 400,
+    content = function(_, x, y, cw)
+      local text, fieldH
+      if isCard then
+        fieldH = ui.textAreaHeight(3)
+        text = ui.textArea("settokentext", x, y, cw, fieldH, st.text, {
+          label = "Text", maxLength = 120, autofocus = true, selectAllOnFocus = true,
+          labelBackground = theme.c.surfaceContainerHigh })
+      else
+        fieldH = ui.textFieldHeight({})
+        text = ui.textField("settokentext", x, y, cw, st.text, {
+          label = "Text", maxLength = 24, autofocus = true, selectAllOnFocus = true,
+          labelBackground = theme.c.surfaceContainerHigh })
+      end
+      st.text = text
+      local yy = y + fieldH + 16
+      local h
+      st.color, h = colorpicker.field("settokentext:color", x, yy, cw, st.color,
+        { label = "Text Color", labelBackground = theme.c.surfaceContainerHigh })
+      return yy + h - y
+    end,
+    actions = { { label = "Cancel", variant = "text" },
+      { label = "Set", variant = "filled",
+        onClick = function() self.controller:setWidgetText(w.instanceId, util.trim(st.text), st.color) end } },
   })
 end
 
@@ -1840,7 +2043,13 @@ function T:sourceFor(item)
   elseif (k == "counter" or k == "packGenerator") and item.interactable then
     return { kind = "widget", widget = item.widget, cx = item.x + item.w / 2, cy = item.y + item.h / 2, scale = self.zoom }
   elseif k == "token" and item.interactable then
-    return { kind = "token", widget = item.widget, cx = item.cx, cy = item.cy, scale = self.zoom }
+    -- A card token's own drag must never attach it to a card or land it in
+    -- a hand/zone, and (unlike a plain token) it can pick up a group of
+    -- cards/card tokens stacked on it with Alt -- see T:startDrag and
+    -- T:handleCardTokenDrop. Selection/ctrl-click still key off item.kind
+    -- ("token"), unaffected by this.
+    local dragKind = item.widget.kind == "cardToken" and "cardToken" or "token"
+    return { kind = dragKind, widget = item.widget, cx = item.cx, cy = item.cy, scale = self.zoom }
   elseif k == "deckHeader" then
     local wx, wy = V.toScreen(self, item.widget.x, item.widget.y)
     return { kind = "widget", widget = item.widget, cx = wx, cy = wy, scale = self.zoom }
@@ -1969,6 +2178,12 @@ function T:processInput()
 
   -- Active drag.
   if self.drag then
+    if ui.mousePressed(2) then
+      -- Right click cancels instead of opening the context menu; consuming
+      -- the press here keeps it from falling through to rightPressItem below.
+      self:cancelDrag()
+      return
+    end
     if self.drag.primaryId then self:sendCardPreview(false) end
     if ui.mouseReleased(1) then self:endDrag() end
     return
@@ -2177,10 +2392,34 @@ local CHAT_W = 340
 
 local function chatTimeLabel(at) return os.date("%H:%M", at) end
 
+-- Practice games have no server, so /flip and /roll dX (see CONTROLS.md) run
+-- locally instead; anything else typed is just kept as a personal note --
+-- there's no one else at the table to read it. Returns nil (post as typed)
+-- for anything that isn't a recognized command.
+local function localChatReply(text)
+  if text:match("^/flip%s*$") then
+    return "flipped: " .. (math.random(2) == 1 and "Heads" or "Tails")
+  end
+  local digits = text:match("^/roll%s+[dD](%d+)%s*$")
+  local sides = digits and tonumber(digits)
+  if sides and sides >= 1 then
+    return ("rolled d%d: %d"):format(sides, math.random(sides))
+  end
+  return nil
+end
+
+function T:sendLocalChat(text)
+  local player = models.TableState.playerById(self.state, self.session:actingPlayerId())
+  self.localChat[#self.localChat + 1] = { at = os.time(), name = player and player.name or "You",
+    text = localChatReply(text) or text }
+end
+
 -- Docked to the right edge, sliding in/out with self.chatAnim (see
--- toggleChat/update). Only drawn while self.sc is set (server games).
+-- toggleChat/update). Drawn while isChatAvailable(): server games relay
+-- through sc.roomChat, practice games use the local-only self.localChat log.
 function T:drawChat()
   local sc = self.sc
+  local lines = sc and sc.roomChat or self.localChat
   local sw, sh = ui.screenSize()
   local top = overlays.contentTop
   local x, y, w, h = sw - CHAT_W * self.chatAnim, top, CHAT_W, sh - top
@@ -2192,7 +2431,7 @@ function T:drawChat()
   local off = ui.beginScroll("table:chat", x + 8, ly, w - 16, lh)
   local cy = ly - off
   local textW = w - 32
-  for _, line in ipairs(sc.roomChat) do
+  for _, line in ipairs(lines) do
     local head = chatTimeLabel(line.at) .. "  " .. line.name
     ui.text(head, x + 16, cy, { size = 12, weight = "bold", color = { 1, 1, 1, 0.54 }, w = textW, ellipsis = true })
     cy = cy + 18
@@ -2201,12 +2440,13 @@ function T:drawChat()
   end
   local contentH = cy + off - ly
   ui.endScroll("table:chat", contentH)
-  if #sc.roomChat ~= self.seenChat then
-    self.seenChat = #sc.roomChat
+  if #lines ~= self.seenChat then
+    self.seenChat = #lines
     ui.scrollToEnd("table:chat")
   end
-  if #sc.roomChat == 0 then
-    ui.text("Say hello!", x, ly, { w = w, h = lh, align = "center", valign = "middle", color = { 1, 1, 1, 0.54 } })
+  if #lines == 0 then
+    local placeholder = sc and "Say hello!" or "Try /flip or /roll d6"
+    ui.text(placeholder, x, ly, { w = w, h = lh, align = "center", valign = "middle", color = { 1, 1, 1, 0.54 } })
   end
   -- textField always draws with theme.c's colors; swap to the dark palette
   -- (same trick as drawLibrary) so typed text is readable on this dark panel.
@@ -2219,7 +2459,11 @@ function T:drawChat()
   local send = ui.iconButton("send", x + w - 12 - 40, y + h - inputH - 12 + 4, { id = "table:chatsend", color = WHITE,
     tooltip = "Send", disabled = text:match("^%s*$") ~= nil })
   if (submitted or send) and not text:match("^%s*$") then
-    sc:send("chatSend", json.object({ "text", text, "roomId", sc.roomId }))
+    if sc then
+      sc:send("chatSend", json.object({ "text", text, "roomId", sc.roomId }))
+    else
+      self:sendLocalChat(util.trim(text))
+    end
     self.chatText = ""
     ui.focusField("table:chatinput")
   end
@@ -2352,7 +2596,10 @@ function T:drawTokenPicker()
   -- The plain color token only shows under "All" -- it isn't one of the
   -- game's defined tokens, so a specific type filter excludes it.
   local entries = {}
-  if self.tokenPickerType == "all" then entries[#entries + 1] = { kind = "token", name = "Color Token" } end
+  if self.tokenPickerType == "all" then
+    entries[#entries + 1] = { kind = "token", name = "Color Token" }
+    entries[#entries + 1] = { kind = "cardToken", name = "Card Token" }
+  end
   for _, e in ipairs(self:definedTokenEntries()) do
     if self.tokenPickerType == "all" or e.tokenType == self.tokenPickerType then entries[#entries + 1] = e end
   end
@@ -2377,10 +2624,14 @@ function T:drawTokenPicker()
     if ty + tileH > y and ty < y + h then
       local cx, cy = tx + tileW / 2, ty + TOKEN_TILE / 2
       local isColor = entry.kind == "token"
-      local id = isColor and "tokenPicker:color" or ("tokenPicker:" .. entry.file)
+      local isCardToken = entry.kind == "cardToken"
+      local id = isColor and "tokenPicker:color" or isCardToken and "tokenPicker:cardToken" or ("tokenPicker:" .. entry.file)
       local r = ui.region(id, tx, ty, tileW, TOKEN_TILE, { cursor = "hand" })
       if isColor then
         V.tokenFace(self, COLOR_TOKEN_WIDGET, cx, cy, TOKEN_TILE, 1)
+      elseif isCardToken then
+        local s = math.min((tileW - 8) / CW, (TOKEN_TILE - 8) / CH)
+        V.cardTokenFace(self, CARD_TOKEN_WIDGET, cx, cy, CW * s, CH * s, 1)
       else
         local img = imageCache.get(entry.path)
         if img then
@@ -2395,6 +2646,8 @@ function T:drawTokenPicker()
         local mx, my = ui.mouse()
         if isColor then
           self:pressSource({ kind = "newToken", cx = cx, cy = cy, scale = 1 }, mx, my)
+        elseif isCardToken then
+          self:pressSource({ kind = "newCardToken", cx = cx, cy = cy, scale = 1 }, mx, my)
         else
           self:pressSource({ kind = "imageToken", imageFile = entry.file, cx = cx, cy = cy, scale = 1 }, mx, my)
         end
@@ -2446,7 +2699,7 @@ function T:draw(x, y, w, h)
   self:refreshSelection()
   if self.tableRect then self:processInput() end
   self.libraryHoverDef = nil
-  local chatSqueeze = (self.sc and CHAT_W * self.chatAnim) or 0
+  local chatSqueeze = (self:isChatAvailable() and CHAT_W * self.chatAnim) or 0
   local logSqueeze = LOG_W * self.logAnim
   V.draw(self, x + logSqueeze, y, w - logSqueeze - chatSqueeze, h)
   self.prevItems = self.items
@@ -2459,7 +2712,7 @@ function T:draw(x, y, w, h)
     ui.overlay(function() self.rulebook:draw(function() self:toggleRulebook() end, self:activeScenarioWithGuide()) end)
   end
   if self.gameMenuOpen then ui.overlay(function() self:drawGameMenu() end) end
-  if self.sc and self.chatAnim > 0.001 then ui.overlay(function() self:drawChat() end) end
+  if self:isChatAvailable() and self.chatAnim > 0.001 then ui.overlay(function() self:drawChat() end) end
   ui.overlay(function() self:drawDragFeedback() end)
   -- Card preview (Space) must render above everything, including chat.
   ui.overlay(function() self:drawPreview() end)

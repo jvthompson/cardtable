@@ -64,8 +64,8 @@ end
 
 M.CardOrientation = { portrait = true, left = true, right = true }
 M.CardZone = { table = true, hand = true, zone = true }
-M.BoardWidgetKind = { simpleCounter = true, token = true, imageToken = true, arrow = true, packGenerator = true,
-  deckBuilder = true, tokenBag = true }
+M.BoardWidgetKind = { simpleCounter = true, token = true, imageToken = true, cardToken = true, arrow = true,
+  packGenerator = true, deckBuilder = true, tokenBag = true }
 M.SharedZoneSide = { left = true, right = true }
 M.ZoneKind = { card = true, widget = true }
 -- Adding a new kind here needs fields in BOTH src/ui/screens/gamedef/zones_tab.lua's
@@ -908,6 +908,7 @@ function BoardWidgetInstance.new(f)
     faceUp = default(f.faceUp, true),
     bagRemaining = f.bagRemaining or {},
     bagRevealed = f.bagRevealed or {},
+    text = f.text or "",
   }
 end
 
@@ -935,6 +936,7 @@ function BoardWidgetInstance.fromJson(t)
     faceUp = t.faceUp,
     bagRemaining = stringList(t.bagRemaining),
     bagRevealed = mapJson(t.bagRevealed, RevealedToken.fromJson),
+    text = t.text,
   })
 end
 
@@ -961,7 +963,8 @@ function BoardWidgetInstance.toJson(w)
     "rotationTurns", unlessDefault(w.rotationTurns, 0),
     "faceUp", unlessDefault(w.faceUp, true),
     "bagRemaining", nonEmptyList(w.bagRemaining),
-    "bagRevealed", nonEmptyList(w.bagRevealed, RevealedToken.toJson)
+    "bagRevealed", nonEmptyList(w.bagRevealed, RevealedToken.toJson),
+    "text", unlessDefault(w.text, "")
   )
 end
 

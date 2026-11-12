@@ -34,8 +34,61 @@ local function nextZIndex(state)
 end
 A.nextZIndex = nextZIndex
 
+local function prevZIndex(state)
+  if #state.cards == 0 then return 0 end
+  local m = state.cards[1].zIndex
+  for i = 2, #state.cards do
+    if state.cards[i].zIndex < m then m = state.cards[i].zIndex end
+  end
+  return m - 1
+end
+A.prevZIndex = prevZIndex
+
+-- Cards and cardToken widgets share one z-order (the "card layer") so they
+-- interleave correctly when rendered, sent to back, or dragged together --
+-- see src/ui/table/table_view.lua's drawTablePiles. Every other widget
+-- kind keeps its own separate counter (nextWidgetZIndex below) and always
+-- renders above the card layer.
+local function cardLayerMinMax(state)
+  local min, max
+  for _, c in ipairs(state.cards) do
+    if not min or c.zIndex < min then min = c.zIndex end
+    if not max or c.zIndex > max then max = c.zIndex end
+  end
+  for _, w in ipairs(state.widgets) do
+    if w.kind == "cardToken" then
+      if not min or w.zIndex < min then min = w.zIndex end
+      if not max or w.zIndex > max then max = w.zIndex end
+    end
+  end
+  return min, max
+end
+
+local function cardLayerNextZIndex(state)
+  local _, max = cardLayerMinMax(state)
+  return max == nil and 0 or max + 1
+end
+A.cardLayerNextZIndex = cardLayerNextZIndex
+
+local function cardLayerPrevZIndex(state)
+  local min = cardLayerMinMax(state)
+  return min == nil and 0 or min - 1
+end
+A.cardLayerPrevZIndex = cardLayerPrevZIndex
+
 local function findById(state, id)
   return models.TableState.cardById(state, id)
+end
+
+-- Like findById, but also accepts a free "cardToken" widget as a valid
+-- attachment anchor -- see syncAttachedWidgets/A.attachWidgetToCard. Card
+-- stacking (A.stackCard/A.moveGroup) stays cards-only via findById above.
+local function findAttachAnchor(state, id)
+  local card = models.TableState.cardById(state, id)
+  if card then return card end
+  local w = models.TableState.widgetById(state, id)
+  if w and w.kind == "cardToken" then return w end
+  return nil
 end
 
 local function mapCards(state, fn)
@@ -63,7 +116,7 @@ local function syncAttachedWidgets(state)
   local widgets = mapWidgets(state, function(w)
     local attachedId = w.attachedCardId
     if attachedId == nil then return w end
-    local card = findById(state, attachedId)
+    local card = findAttachAnchor(state, attachedId)
     if card == nil then return w end
     local newX, newY = card.x + w.attachOffsetX, card.y + w.attachOffsetY
     if w.x == newX and w.y == newY then return w end
@@ -117,14 +170,17 @@ function A.rotateStack(state, rootInstanceId, clockwise, step)
   return bumped(state, { cards = cards })
 end
 
-function A.bringToFront(state, rootInstanceId)
+-- Sends the hovered pile's top card underneath every other card on the
+-- table (and, as a side effect, underneath the rest of its own stack too --
+-- zIndex drives both orderings, so that's the same thing as "to the back").
+function A.sendToBack(state, rootInstanceId)
   local stack = stacks.stackOf(state.cards, rootInstanceId)
   if #stack == 0 then return state end
   local topId = stacks.topOf(stack).instanceId
-  local nextZ = nextZIndex(state)
+  local prevZ = prevZIndex(state)
   local cards = mapCards(state, function(c)
     if c.instanceId ~= topId then return c end
-    return copyWith(c, { zIndex = nextZ })
+    return copyWith(c, { zIndex = prevZ })
   end)
   return bumped(state, { cards = cards })
 end
@@ -412,8 +468,9 @@ local function appendWidget(state, w)
 end
 
 function A.createWidget(state, instanceId, kind, x, y, ownerId, imagePath)
+  local z = kind == "cardToken" and cardLayerNextZIndex(state) or nextWidgetZIndex(state)
   return appendWidget(state, models.BoardWidgetInstance.new({
-    instanceId = instanceId, kind = kind, x = x, y = y, zIndex = nextWidgetZIndex(state), ownerId = ownerId,
+    instanceId = instanceId, kind = kind, x = x, y = y, zIndex = z, ownerId = ownerId,
     imagePath = imagePath,
   }))
 end
@@ -434,16 +491,24 @@ function A.createArrow(state, instanceId, x, y, x2, y2, creatorId)
 end
 
 function A.moveWidget(state, instanceId, x, y)
-  local nextZ = nextWidgetZIndex(state)
+  local moving = models.TableState.widgetById(state, instanceId)
+  local nextZ = (moving and moving.kind == "cardToken") and cardLayerNextZIndex(state) or nextWidgetZIndex(state)
   local widgets = mapWidgets(state, function(w)
     if w.instanceId ~= instanceId then return w end
     return copyWith(w, { x = x, y = y, zIndex = nextZ, attachedCardId = NIL, attachOffsetX = 0, attachOffsetY = 0 })
   end)
-  return bumped(state, { widgets = widgets })
+  -- A moved widget may itself be a cardToken anchor that other widgets ride
+  -- on; keep them glued to it, mirroring A.moveCard/A.moveStack for cards.
+  return syncAttachedWidgets(bumped(state, { widgets = widgets }))
 end
 
+-- A card token can be an attachment anchor (other widgets ride on it) but
+-- must never itself become an attached child -- not even via a future or
+-- misbehaving caller, so this is enforced here rather than only in the UI.
 function A.attachWidgetToCard(state, instanceId, cardId, x, y)
-  local card = findById(state, cardId)
+  local moving = models.TableState.widgetById(state, instanceId)
+  if moving and moving.kind == "cardToken" then return state end
+  local card = findAttachAnchor(state, cardId)
   if card == nil then return state end
   local nextZ = nextWidgetZIndex(state)
   local widgets = mapWidgets(state, function(w)
@@ -486,7 +551,17 @@ function A.deleteWidget(state, instanceId)
       return spilled
     end)
   end
-  local widgets = util.filter(state.widgets, function(w) return w.instanceId ~= instanceId end)
+  local remaining = util.filter(state.widgets, function(w) return w.instanceId ~= instanceId end)
+  -- The removed widget may have been a cardToken anchor other widgets were
+  -- riding on; detach them rather than leave a dangling attachedCardId.
+  local widgets = {}
+  for i, w in ipairs(remaining) do
+    if w.attachedCardId == instanceId then
+      widgets[i] = copyWith(w, { attachedCardId = NIL, attachOffsetX = 0, attachOffsetY = 0 })
+    else
+      widgets[i] = w
+    end
+  end
   return bumped(state, { cards = cards, widgets = widgets })
 end
 
@@ -494,6 +569,15 @@ function A.setWidgetColors(state, instanceId, backgroundColor, textColor)
   local widgets = mapWidgets(state, function(w)
     if w.instanceId ~= instanceId then return w end
     return copyWith(w, { backgroundColor = backgroundColor, textColor = textColor })
+  end)
+  return bumped(state, { widgets = widgets })
+end
+
+-- A color token's optional single-line label (text) and its color.
+function A.setWidgetText(state, instanceId, text, textColor)
+  local widgets = mapWidgets(state, function(w)
+    if w.instanceId ~= instanceId then return w end
+    return copyWith(w, { text = text, textColor = textColor })
   end)
   return bumped(state, { widgets = widgets })
 end
@@ -514,7 +598,8 @@ end
 -- 45°. Brings the token to the front, like rotating a card does.
 function A.rotateWidget(state, instanceId, clockwise, step)
   local delta = (clockwise and 1 or -1) * (step or 1)
-  local nextZ = nextWidgetZIndex(state)
+  local w0 = models.TableState.widgetById(state, instanceId)
+  local nextZ = (w0 and w0.kind == "cardToken") and cardLayerNextZIndex(state) or nextWidgetZIndex(state)
   local widgets = mapWidgets(state, function(w)
     if w.instanceId ~= instanceId then return w end
     return copyWith(w, { rotationTurns = (w.rotationTurns or 0) + delta, zIndex = nextZ })
@@ -525,10 +610,25 @@ end
 -- Flips a free token in place (F on a hovered token, mirroring A.flipCard
 -- for cards). Brings it to the front, like flipping a card does.
 function A.flipWidget(state, instanceId)
-  local nextZ = nextWidgetZIndex(state)
+  local w0 = models.TableState.widgetById(state, instanceId)
+  local nextZ = (w0 and w0.kind == "cardToken") and cardLayerNextZIndex(state) or nextWidgetZIndex(state)
   local widgets = mapWidgets(state, function(w)
     if w.instanceId ~= instanceId then return w end
     return copyWith(w, { faceUp = not w.faceUp, zIndex = nextZ })
+  end)
+  return bumped(state, { widgets = widgets })
+end
+
+-- Sends a card token behind every other card/card token (Z on a hovered
+-- one, mirroring A.sendToBack for cards). Meaningless for any other widget
+-- kind, which always renders above the card layer regardless of zIndex.
+function A.sendWidgetToBack(state, instanceId)
+  local w0 = models.TableState.widgetById(state, instanceId)
+  if w0 == nil then return state end
+  local prevZ = cardLayerPrevZIndex(state)
+  local widgets = mapWidgets(state, function(w)
+    if w.instanceId ~= instanceId then return w end
+    return copyWith(w, { zIndex = prevZ })
   end)
   return bumped(state, { widgets = widgets })
 end
@@ -539,11 +639,12 @@ function A.duplicateWidget(state, sourceInstanceId, newInstanceId, x, y)
     if w.instanceId == sourceInstanceId then source = w break end
   end
   if source == nil then return state end
+  local z = source.kind == "cardToken" and cardLayerNextZIndex(state) or nextWidgetZIndex(state)
   return appendWidget(state, models.BoardWidgetInstance.new({
-    instanceId = newInstanceId, kind = source.kind, x = x, y = y, zIndex = nextWidgetZIndex(state),
+    instanceId = newInstanceId, kind = source.kind, x = x, y = y, zIndex = z,
     value = source.value, backgroundColor = source.backgroundColor, textColor = source.textColor,
     imagePath = source.imagePath, sizeOverride = source.sizeOverride, rotationTurns = source.rotationTurns,
-    faceUp = source.faceUp,
+    faceUp = source.faceUp, text = source.text,
   }))
 end
 

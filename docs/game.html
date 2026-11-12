@@ -156,7 +156,7 @@
     <tr><td><code>moveStack(rootId, x, y)</code></td><td>No log entry at all — just state + notify.</td></tr>
     <tr><td><code>moveGroup(primaryId, passengerRootIds, x, y, actingPlayerId)</code></td><td>Same "played to the table" log, keyed off the primary card only.</td></tr>
     <tr><td><code>rotateStack(rootId, clockwise, actingPlayerId)</code></td><td>"rotated &quot;Name&quot;." if the card is publicly visible, else "rotated a card."</td></tr>
-    <tr><td><code>bringToFront(rootId)</code></td><td>No log entry.</td></tr>
+    <tr><td><code>sendToBack(rootId)</code></td><td>No log entry.</td></tr>
     <tr><td><code>flipCard(id, actingPlayerId)</code></td><td>Logs "flipped &quot;Name&quot; face up/face down." (direction read from the <em>new</em> state) or the nameless variant if the card has no definition title to show (e.g. it's an unrevealed/hidden instance).</td></tr>
     <tr><td><code>giveCard(id, newOwnerId, actingPlayerId)</code></td><td><strong>Refuses silently</strong> via <code>isInPile</code> if the card currently sits in a multi-card table pile — piles never mix owners, so neither giving nor releasing a piled card is allowed. Logs "gave ... to &lt;player&gt;." or "released ... back to the table." for <code>newOwnerId == nil</code>.</td></tr>
     <tr><td><code>canStackOnto(id, ontoId) -&gt; boolean</code></td><td>Not a mutator — the ownership-compatibility check: resolves the dragged card's effective owner (nil if <code>unownable</code>), then requires every card already in the target pile to share that same owner. This is the actual enforcement of "piles never mix owners" that CONTROLS.md describes; <code>table_actions.stackCard</code> itself has no such check.</td></tr>
@@ -250,7 +250,7 @@
     <tr><td><code>requestRotateStack</code></td><td><code>rotateStack</code></td></tr>
     <tr><td><code>requestRotateWidget</code></td><td><code>rotateWidget</code></td></tr>
     <tr><td><code>requestFlipWidget</code></td><td><code>flipWidget</code></td></tr>
-    <tr><td><code>requestBringToFront</code></td><td><code>bringToFront</code></td></tr>
+    <tr><td><code>requestSendToBack</code></td><td><code>sendToBack</code></td></tr>
     <tr><td><code>requestFlip</code></td><td><code>flipCard</code></td></tr>
     <tr><td><code>requestGiveCard</code></td><td><code>giveCard</code> — only if <code>newOwnerId</code> is nil or an actual player id</td></tr>
     <tr><td><code>requestStack</code></td><td><code>stackCard</code> — requires both the moved card and the target card to exist</td></tr>
@@ -311,7 +311,7 @@
   <div class="fn"><div class="sig">Host:acting() -&gt; id</div>Delegates to <code>session:actingPlayerId()</code> — respects practice mode's active-seat override.</div>
   <div class="fn"><div class="sig">Host:isOwnedOrUnowned(instanceId) / isOwnedOrUnownedStack(rootId) -&gt; boolean</div>Client-side mirrors of the same ownership logic <a href="#host-engine-permissions">host_engine</a> enforces authoritatively — in local/host-authoritative modes there's no separate network hop to reject an action on, so these checks have to happen right here before calling into <code>Session</code> at all.</div>
   <div class="fn"><div class="sig">Host:zoneOwnerId(zoneId) -&gt; id|nil</div>Same resolution logic as <code>host_engine:zoneOwnerId</code> (deck-widget unwrap, shared-zone check, else the acting player), duplicated here rather than shared because this runs client-side against the local <code>Session</code> directly.</div>
-  <p>Every other <code>Host</code> method (<code>moveCard, moveGroup, moveStack, rotateStack, bringToFront, flipCard, giveCard, stackCard, moveToHand, reorderHand, drawCard, shufflePile, drawFromZone, returnToZone, shuffleZone, loadDeckIntoZone, startSearchZone, startSearchPile, stopSearch, createWidget, createArrow, moveWidget, setWidgetValue, deleteWidget, setWidgetColors, duplicateWidget, attachWidgetToCard, generatePack, createCardFromLibrary</code>) follows the same shape: optionally gate on one of the two ownership checks above, then call the matching <code>self.session:&lt;method&gt;(..., self:acting())</code>.</p>
+  <p>Every other <code>Host</code> method (<code>moveCard, moveGroup, moveStack, rotateStack, sendToBack, flipCard, giveCard, stackCard, moveToHand, reorderHand, drawCard, shufflePile, drawFromZone, returnToZone, shuffleZone, loadDeckIntoZone, startSearchZone, startSearchPile, stopSearch, createWidget, createArrow, moveWidget, setWidgetValue, deleteWidget, setWidgetColors, duplicateWidget, attachWidgetToCard, generatePack, createCardFromLibrary</code>) follows the same shape: optionally gate on one of the two ownership checks above, then call the matching <code>self.session:&lt;method&gt;(..., self:acting())</code>.</p>
   <div class="fn"><div class="sig">Host:previewCardDrag(primaryId, passengerRootIds, fx, fy) / endCardDragPreview() / previewArrowDrag(fx, fy, fx2, fy2) / endArrowDragPreview()</div>Forward straight to <code>previewSink</code> if one was supplied (no-op otherwise — practice mode has no preview sink since there's nobody else to show a preview to).</div>
 
   <h3 id="controller-client">Client (M.Client)</h3>

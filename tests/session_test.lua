@@ -544,6 +544,18 @@ return function(t)
     end)
   end)
 
+  t.describe("createWidget ownership", function()
+    t.it("cardToken and deckBuilder are owned by their creator; plain tokens stay free", function()
+      local s = Session.new({ game = game({}), localPlayerId = "p1", now = now, initialState = H.state({ players = { p1, p2 } }) })
+      s:createWidget("ct", "cardToken", 0.5, 0.5, "p1")
+      s:createWidget("dw", "deckBuilder", 0.5, 0.5, "p1")
+      s:createWidget("tok", "token", 0.5, 0.5, "p1")
+      t.eq(H.find(s.state.widgets, "ct").ownerId, "p1")
+      t.eq(H.find(s.state.widgets, "dw").ownerId, "p1")
+      t.isNil(H.find(s.state.widgets, "tok").ownerId)
+    end)
+  end)
+
   t.describe("arrows", function()
     t.it("expire after 5 seconds via update()", function()
       clock = 0

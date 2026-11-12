@@ -79,7 +79,7 @@ return function(t)
       local w = models.BoardWidgetInstance.new({ instanceId = "w", kind = "arrow", x = 0.1, y = 0.2, zIndex = 1,
         value = 5, backgroundColor = 0xFF000000, textColor = 0xFFD32F2F, attachedCardId = "c", attachOffsetX = 0.01,
         attachOffsetY = -0.02, x2 = 0.9, y2 = 0.8, creatorId = "p1", ownerId = "p2", zoneId = "z", rotationTurns = 0.5,
-        faceUp = false })
+        faceUp = false, text = "Hi" })
       t.eq((roundTrip(models.BoardWidgetInstance, w)), w)
       local _, enc = roundTrip(models.BoardWidgetInstance, models.BoardWidgetInstance.new({ instanceId = "w",
         kind = "token", x = 0, y = 0, zIndex = 0 }))
@@ -93,6 +93,11 @@ return function(t)
       local back, enc = roundTrip(models.BoardWidgetInstance, flipped)
       t.eq(back, flipped)
       t.ok(enc:find('"faceUp":false', 1, true) ~= nil)
+    end)
+    t.it("cardToken kind round-trips like any other widget", function()
+      local w = models.BoardWidgetInstance.new({ instanceId = "w", kind = "cardToken", x = 0, y = 0, zIndex = 0,
+        text = "Line1\nLine2" })
+      t.eq((roundTrip(models.BoardWidgetInstance, w)), w)
     end)
     t.it("tokenBag: sizeOverride/bagRemaining/bagRevealed round-trip, omitted when empty", function()
       local w = models.BoardWidgetInstance.new({ instanceId = "w", kind = "tokenBag", x = 0, y = 0, zIndex = 0 })

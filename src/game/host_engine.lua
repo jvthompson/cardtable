@@ -128,6 +128,16 @@ function E:allowedWidget(id, requester)
   return w ~= nil and (w.ownerId == nil or w.ownerId == requester)
 end
 
+-- A widget can attach to a card freely, but a card token is owned and
+-- off-limits to anyone else -- a request targeting someone else's card
+-- token (whether attaching to it or, via A.attachWidgetToCard's own guard,
+-- being a card token itself) must be refused.
+function E:allowedAttachTarget(cardId, requester)
+  local w = self:widget(cardId)
+  if w == nil or w.kind ~= "cardToken" then return true end
+  return w.ownerId == nil or w.ownerId == requester
+end
+
 function E:allowedDelete(id, requester)
   local w = self:widget(id)
   if not w or not self:movableWidget(id, requester) then return false end
@@ -169,8 +179,8 @@ function E:handleMessage(clientId, msg)
       if self:allowedCard(p.rootInstanceId, clientId) then
         s:rotateStack(p.rootInstanceId, p.clockwise == true, clientId, num(p.step) or 1)
       end
-    elseif t == "requestBringToFront" then
-      if self:allowedCard(p.rootInstanceId, clientId) then s:bringToFront(p.rootInstanceId) end
+    elseif t == "requestSendToBack" then
+      if self:allowedCard(p.rootInstanceId, clientId) then s:sendToBack(p.rootInstanceId) end
     elseif t == "requestFlip" then
       if self:allowedCard(p.instanceId, clientId) then s:flipCard(p.instanceId, clientId) end
     elseif t == "requestGiveCard" then
@@ -213,6 +223,8 @@ function E:handleMessage(clientId, msg)
       if self:allowedDelete(p.instanceId, clientId) then s:deleteWidget(p.instanceId) end
     elseif t == "requestSetWidgetColors" then
       if self:allowedWidget(p.instanceId, clientId) then s:setWidgetColors(p.instanceId, num(p.backgroundColor), num(p.textColor)) end
+    elseif t == "requestSetWidgetText" then
+      if self:allowedWidget(p.instanceId, clientId) then s:setWidgetText(p.instanceId, str(p.text) or "", num(p.textColor)) end
     elseif t == "requestSetWidgetSize" then
       if self:allowedWidget(p.instanceId, clientId) then
         s:setWidgetSize(p.instanceId, p.sizeOverride == "native" and "native" or num(p.sizeOverride))
@@ -221,10 +233,14 @@ function E:handleMessage(clientId, msg)
       if self:allowedWidget(p.instanceId, clientId) then s:rotateWidget(p.instanceId, p.clockwise == true, num(p.step) or 1) end
     elseif t == "requestFlipWidget" then
       if self:allowedWidget(p.instanceId, clientId) then s:flipWidget(p.instanceId) end
+    elseif t == "requestSendWidgetToBack" then
+      if self:allowedWidget(p.instanceId, clientId) then s:sendWidgetToBack(p.instanceId) end
     elseif t == "requestDuplicateWidget" then
       if self:movableWidget(p.sourceInstanceId, clientId) then s:duplicateWidget(p.sourceInstanceId, p.newInstanceId, num(p.x), num(p.y)) end
     elseif t == "requestAttachWidgetToCard" then
-      if self:movableWidget(p.instanceId, clientId) then s:attachWidgetToCard(p.instanceId, p.cardId, num(p.x), num(p.y), clientId) end
+      if self:movableWidget(p.instanceId, clientId) and self:allowedAttachTarget(p.cardId, clientId) then
+        s:attachWidgetToCard(p.instanceId, p.cardId, num(p.x), num(p.y), clientId)
+      end
     elseif t == "requestDrawBagToken" then
       if self:allowedWidget(p.instanceId, clientId) then s:drawBagToken(p.instanceId, clientId) end
     elseif t == "requestReturnBagToken" then

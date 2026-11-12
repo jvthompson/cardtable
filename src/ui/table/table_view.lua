@@ -44,6 +44,7 @@ function V.widgetSize(T, kind)
   if kind == "simpleCounter" or kind == "packGenerator" or kind == "tokenBag" then return V.counterSize, V.counterSize end
   if kind == "token" then return V.tokenSize, V.tokenSize end
   if kind == "imageToken" then return V.imageTokenSize, V.imageTokenSize end
+  if kind == "cardToken" then return CW, CH end
   if kind == "deckBuilder" then return V.deckWidgetSize(#models.GameDefinition.deckBuildingZones(T.game)) end
   return 0, 0
 end
@@ -385,6 +386,15 @@ function V.isDragging(T, id)
   return d and d.started and (d.primaryId == id or (d.groupIds and d.groupIds[id]))
 end
 
+-- Whether widget `id` is being moved right now: dragged solo (widgetId),
+-- as part of a selection drag (tokenIds), or swept into a pickupGroup
+-- alongside a dragged card or card token (groupIds).
+function V.widgetBeingDragged(T, id)
+  local d = T.drag
+  if not (d and d.started) then return false end
+  return d.widgetId == id or (d.tokenIds and d.tokenIds[id]) or (d.groupIds and d.groupIds[id])
+end
+
 -- Opacity for a card that is being dragged here or by another player.
 function V.ghostAlpha(T, id)
   if V.isDragging(T, id) then return 0.3 end
@@ -619,51 +629,6 @@ local function drawPileBox(T, opts)
 end
 V.drawPileBox = drawPileBox
 
-local function drawTablePiles(T)
-  local D = T.derived
-  local acting = T.session:actingPlayerId()
-  for _, rootId in ipairs(D.sortedRoots) do
-    local cards = D.pileGroups[rootId]
-    local top = stacks.topOf(cards)
-    local px, py = V.toScreen(T, top.x, top.y)
-    local ownedByOpponent = top.ownerId ~= nil and top.ownerId ~= acting
-    local faceAway = T:cardFacesAwayFromMe(top.ownerId)
-    local turns = V.animatedTurns(T, top.instanceId, V.cardTurns(T, top, faceAway))
-    local angle = turns * 2 * math.pi
-    local alpha = V.ghostAlpha(T, top.instanceId)
-    local def = V.def(T, top)
-    local border = V.ownerBorderColor(T, top.ownerId)
-    local interactable = not ownedByOpponent and not T.tabDown
-    local tint = T:isRootSelected(rootId) and T:selectionTint() or nil
-    if #cards > 1 then
-      drawPileBox(T, {
-        cx = px, cy = py, scale = T.zoom, count = #cards, def = def, faceUp = top.faceUp, angle = angle,
-        border = border, alpha = alpha, tint = tint, wiggleKey = "pile:" .. rootId,
-        searched = D.pileSearched[rootId],
-        shuffle = interactable and { key = "pile:" .. rootId, onClick = function() T:shufflePile(rootId) end } or nil,
-      })
-      -- The item covers the 94x124 pile box (rotation ignored, like Flutter's
-      -- MouseRegion on the unrotated box); the shuffle button was registered
-      -- first so the pile item is added before it... ordering fixed below.
-      local boxW, boxH = (CW + EXTRA) * T.zoom, (CH + EXTRA) * T.zoom
-      table.insert(T.items, #T.items - (interactable and 1 or 0) + 1, {
-        kind = "pile", rootId = rootId, card = top, cards = cards, hoverId = top.instanceId,
-        x = px - boxW / 2, y = py - boxH / 2, w = boxW, h = boxH,
-        interactable = interactable, ownedByOpponent = ownedByOpponent,
-      })
-    elseif not (T.flight and T.flight.instanceId == top.instanceId) then
-      CR.draw({ def = def, faceUp = top.faceUp, cx = px, cy = py, scale = T.zoom, angle = angle, border = border,
-        alpha = alpha, tint = tint, cardBacks = T.game.cardBacks, scenarioCardBackId = T.game.scenarioCardBackId })
-      V.addItem(T, {
-        kind = "tableCard", card = top, rootId = rootId, hoverId = top.instanceId,
-        cx = px, cy = py, hw = CW * T.zoom / 2, hh = CH * T.zoom / 2, angle = angle,
-        x = px - CW * T.zoom / 2, y = py - CH * T.zoom / 2, w = CW * T.zoom, h = CH * T.zoom,
-        interactable = interactable, ownedByOpponent = ownedByOpponent,
-      })
-    end
-  end
-end
-
 -- When the counter has an image (and it loads), it replaces the solid fill
 -- as the widget's main graphic; a small circle in backgroundColor sits
 -- behind the value so it stays legible over whatever's in the image.
@@ -752,14 +717,71 @@ local function tokenFace(T, w, cx, cy, size, alpha)
       love.graphics.setColor(1, 1, 1, 0.3 * alpha)
       love.graphics.circle("line", cx, cy, size / 2)
     end
-    return
+  else
+    ui.setColor(flipped and greyRgba(w.backgroundColor, alpha) or rgba(w.backgroundColor, alpha))
+    love.graphics.circle("fill", cx, cy, size / 2)
+    love.graphics.setColor(0, 0, 0, 0.26 * alpha)
+    love.graphics.circle("line", cx, cy, size / 2)
   end
-  ui.setColor(flipped and greyRgba(w.backgroundColor, alpha) or rgba(w.backgroundColor, alpha))
-  love.graphics.circle("fill", cx, cy, size / 2)
-  love.graphics.setColor(0, 0, 0, 0.26 * alpha)
-  love.graphics.circle("line", cx, cy, size / 2)
+  -- Optional single-line label (color tokens only, via "Update Text"): fixed
+  -- base font scaled to ~80% of the token's height, no wrap/shrink -- it's
+  -- allowed to overflow past the token's edge for a long label.
+  if w.text and w.text ~= "" then
+    local f = theme.font(40, "bold")
+    love.graphics.setFont(f)
+    ui.setColor(rgba(w.textColor, alpha))
+    local scale = (size * 0.8) / f:getHeight()
+    love.graphics.print(w.text, cx, cy, 0, scale, scale, f:getWidth(w.text) / 2, f:getHeight() / 2)
+  end
 end
 V.tokenFace = tokenFace
+
+-- A card token: a blank, card-shaped (not circular) widget. Like a color
+-- token's label but multi-line/word-wrapped, sized so 3 lines fill ~80% of
+-- the card's height -- the font is measured at an arbitrary size and then
+-- uniformly scaled to hit that target (same technique tokenFace uses for
+-- its single-line label), with the wrap width corrected by the same scale
+-- so wrapping reflects the card's actual on-screen width. Text that still
+-- wraps past 3 lines is allowed to overflow rather than shrinking further.
+local function cardTokenFace(T, w, cx, cy, ww, wh, alpha)
+  local flipped = w.faceUp == false
+  local angle = (w.rotationTurns or 0) * math.pi / 2
+  local rad = math.min(ww, wh) * 0.05
+  love.graphics.push()
+  love.graphics.translate(cx, cy)
+  love.graphics.rotate(angle)
+  ui.setColor(flipped and greyRgba(w.backgroundColor, alpha) or rgba(w.backgroundColor, alpha))
+  love.graphics.rectangle("fill", -ww / 2, -wh / 2, ww, wh, rad, rad)
+  love.graphics.setColor(0, 0, 0, 0.26 * alpha)
+  love.graphics.rectangle("line", -ww / 2 + 0.5, -wh / 2 + 0.5, ww - 1, wh - 1, rad, rad)
+  if w.text and w.text ~= "" then
+    local pad = 6
+    local lineH = wh * 0.8 / 3
+    local f = theme.font(math.max(6, math.floor(lineH + 0.5)), "bold")
+    love.graphics.setFont(f)
+    local scale = lineH / f:getHeight()
+    local wrapW = math.max(1, (ww - pad * 2) / scale)
+    local _, lines = f:getWrap(w.text, wrapW)
+    if #lines == 0 then lines = { "" } end
+    local blockH = #lines * lineH
+    ui.setColor(rgba(w.textColor, alpha))
+    for i, line in ipairs(lines) do
+      local ly = -blockH / 2 + (i - 1) * lineH + lineH / 2
+      love.graphics.print(line, 0, ly, 0, scale, scale, f:getWidth(line) / 2, f:getHeight() / 2)
+    end
+  end
+  -- Owner border: same per-player color real cards get (V.ownerBorderColor),
+  -- since a card token is owned by whoever spawned it.
+  local border = V.ownerBorderColor(T, w.ownerId)
+  if border then
+    love.graphics.setColor(border[1], border[2], border[3], (border[4] or 1) * alpha)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", -ww / 2 + 1, -wh / 2 + 1, ww - 2, wh - 2, rad, rad)
+    love.graphics.setLineWidth(1)
+  end
+  love.graphics.pop()
+end
+V.cardTokenFace = cardTokenFace
 
 local BAG_SIZE, BAG_GAP = V.counterSize, 12
 
@@ -882,21 +904,115 @@ local function deckWidgetFace(T, w, x, y, ww, wh, s, alpha)
   end
 end
 
+-- Opacity for a widget attached to (riding on) `anchorId`, or being moved
+-- itself -- shared by drawTableWidgets and drawTablePiles's cardToken entries.
+local function widgetDragAlpha(T, w)
+  if w.attachedCardId and (V.widgetBeingDragged(T, w.attachedCardId) or V.ghostAlpha(T, w.attachedCardId) < 1) then
+    return 0.3
+  end
+  if V.widgetBeingDragged(T, w.instanceId) then return 0.3 end
+  return 1
+end
+V.widgetDragAlpha = widgetDragAlpha
+
+local function drawPile(T, D, acting, rootId)
+  local cards = D.pileGroups[rootId]
+  local top = stacks.topOf(cards)
+  local px, py = V.toScreen(T, top.x, top.y)
+  local ownedByOpponent = top.ownerId ~= nil and top.ownerId ~= acting
+  local faceAway = T:cardFacesAwayFromMe(top.ownerId)
+  local turns = V.animatedTurns(T, top.instanceId, V.cardTurns(T, top, faceAway))
+  local angle = turns * 2 * math.pi
+  local alpha = V.ghostAlpha(T, top.instanceId)
+  local def = V.def(T, top)
+  local border = V.ownerBorderColor(T, top.ownerId)
+  local interactable = not ownedByOpponent and not T.tabDown
+  local tint = T:isRootSelected(rootId) and T:selectionTint() or nil
+  if #cards > 1 then
+    drawPileBox(T, {
+      cx = px, cy = py, scale = T.zoom, count = #cards, def = def, faceUp = top.faceUp, angle = angle,
+      border = border, alpha = alpha, tint = tint, wiggleKey = "pile:" .. rootId,
+      searched = D.pileSearched[rootId],
+      shuffle = interactable and { key = "pile:" .. rootId, onClick = function() T:shufflePile(rootId) end } or nil,
+    })
+    -- The item covers the 94x124 pile box (rotation ignored, like Flutter's
+    -- MouseRegion on the unrotated box); the shuffle button was registered
+    -- first so the pile item is added before it... ordering fixed below.
+    local boxW, boxH = (CW + EXTRA) * T.zoom, (CH + EXTRA) * T.zoom
+    table.insert(T.items, #T.items - (interactable and 1 or 0) + 1, {
+      kind = "pile", rootId = rootId, card = top, cards = cards, hoverId = top.instanceId,
+      x = px - boxW / 2, y = py - boxH / 2, w = boxW, h = boxH,
+      interactable = interactable, ownedByOpponent = ownedByOpponent,
+    })
+  elseif not (T.flight and T.flight.instanceId == top.instanceId) then
+    CR.draw({ def = def, faceUp = top.faceUp, cx = px, cy = py, scale = T.zoom, angle = angle, border = border,
+      alpha = alpha, tint = tint, cardBacks = T.game.cardBacks, scenarioCardBackId = T.game.scenarioCardBackId })
+    V.addItem(T, {
+      kind = "tableCard", card = top, rootId = rootId, hoverId = top.instanceId,
+      cx = px, cy = py, hw = CW * T.zoom / 2, hh = CH * T.zoom / 2, angle = angle,
+      x = px - CW * T.zoom / 2, y = py - CH * T.zoom / 2, w = CW * T.zoom, h = CH * T.zoom,
+      interactable = interactable, ownedByOpponent = ownedByOpponent,
+    })
+  end
+end
+
+local function drawLooseCardToken(T, acting, w)
+  local ww, wh = V.widgetInstanceSize(T, w)
+  local px, py = V.toScreen(T, w.x, w.y)
+  local s = T.zoom
+  local angle = (w.rotationTurns or 0) * math.pi / 2
+  local alpha = widgetDragAlpha(T, w)
+  cardTokenFace(T, w, px, py, ww * s, wh * s, alpha)
+  if T:isTokenSelected(w.instanceId) then
+    local c = T:selectionColor()
+    love.graphics.push()
+    love.graphics.translate(px, py)
+    love.graphics.rotate(angle)
+    love.graphics.setColor(c[1], c[2], c[3], alpha)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", -ww * s / 2 - 2, -wh * s / 2 - 2, ww * s + 4, wh * s + 4, 4, 4)
+    love.graphics.setLineWidth(1)
+    love.graphics.pop()
+  end
+  -- Owned by whoever spawned it, and only that player can interact with it
+  -- at all (move, rotate, flip, right-click menu, select).
+  local interactable = not T.tabDown and w.ownerId ~= nil and w.ownerId == acting
+  V.addItem(T, { kind = "token", widget = w, cx = px, cy = py, hw = ww * s / 2, hh = wh * s / 2, angle = angle,
+    x = px - ww * s / 2, y = py - wh * s / 2, w = ww * s, h = wh * s, interactable = interactable })
+end
+
+-- Cards and loose card tokens share one z-order (see table_actions.lua's
+-- cardLayerNextZIndex), so they're interleaved into a single draw pass here
+-- rather than card tokens always rendering above every card like other
+-- widget kinds do in drawTableWidgets.
+local function drawTablePiles(T)
+  local D = T.derived
+  local acting = T.session:actingPlayerId()
+  local layer = {}
+  for _, rootId in ipairs(D.sortedRoots) do
+    layer[#layer + 1] = { z = stacks.topOf(D.pileGroups[rootId]).zIndex, rootId = rootId }
+  end
+  for _, w in ipairs(T.state.widgets) do
+    if w.kind == "cardToken" then layer[#layer + 1] = { z = w.zIndex, widget = w } end
+  end
+  table.sort(layer, function(a, b) return a.z < b.z end)
+  for _, entry in ipairs(layer) do
+    if entry.rootId then drawPile(T, D, acting, entry.rootId) else drawLooseCardToken(T, acting, entry.widget) end
+  end
+end
+
 local function drawTableWidgets(T)
   local acting = T.session:actingPlayerId()
   -- Widgets stack in zIndex order (the list order already reflects creation;
-  -- Flutter draws them in list order too).
+  -- Flutter draws them in list order too). Card tokens are drawn in
+  -- drawTablePiles instead, interleaved with cards by their shared z-order.
   for _, w in ipairs(T.state.widgets) do
-    if w.kind ~= "arrow" and w.zoneId == nil then
+    if w.kind ~= "arrow" and w.kind ~= "cardToken" and w.zoneId == nil then
       local ww, wh = V.widgetInstanceSize(T, w)
       local px, py = V.toScreen(T, w.x, w.y)
       local s = T.zoom
       local x, y = px - ww * s / 2, py - wh * s / 2
-      local alpha = 1
-      if w.attachedCardId and (V.isDragging(T, w.attachedCardId) or V.ghostAlpha(T, w.attachedCardId) < 1) then alpha = 0.3 end
-      if T.drag and T.drag.started and (T.drag.widgetId == w.instanceId or (T.drag.tokenIds and T.drag.tokenIds[w.instanceId])) then
-        alpha = 0.3
-      end
+      local alpha = widgetDragAlpha(T, w)
       local interactable = not T.tabDown
       if w.kind == "simpleCounter" then
         counterFace(T, w, x, y, ww * s, alpha)
@@ -1242,7 +1358,7 @@ local function drawPlayerRow(T, rowPlayers, isTopRow, x, y, w)
   for i, player in ipairs(rowPlayers) do
     local px = x + (i - 1) * (panelW + 12)
     local isLocal = player.id == T.session:actingPlayerId()
-    local rotate = isTopRow and #T.state.players > 2 and player.id ~= T.session.localPlayerId
+    local rotate = isTopRow and player.id ~= T.session.localPlayerId
     local reverse = (n == 2 and i == 1) or (isTopRow and n == 1 and not rotate)
     local zones = {}
     for _, z in ipairs(ownedZones) do zones[#zones + 1] = z end

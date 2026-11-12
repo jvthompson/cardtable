@@ -381,7 +381,7 @@
     <tr><td><code>A.moveCard(state, instanceId, x, y)</code></td><td>Moves a single card to the table at <code>(x,y)</code>, clearing <code>stackParentId</code>/<code>zoneId</code> (detaches from any pile/zone) and clearing ownership if the card is <code>unownable</code>. Bumps z to front and re-syncs attached widgets.</td></tr>
     <tr><td><code>A.moveStack(state, rootInstanceId, x, y)</code></td><td>Moves an entire pile together; only the <em>top</em> card of the pile gets a new (frontmost) zIndex, the rest keep their relative order.</td></tr>
     <tr><td><code>A.rotateStack(state, rootInstanceId, clockwise)</code></td><td>Adds ±1 to <code>rotationTurns</code> on every card in the pile that's currently on the table (not in a zone/hand); only the top card's zIndex is bumped.</td></tr>
-    <tr><td><code>A.bringToFront(state, rootInstanceId)</code></td><td>Re-zIndexes just the pile's top card to the new frontmost value.</td></tr>
+    <tr><td><code>A.sendToBack(state, rootInstanceId)</code></td><td>Re-zIndexes just the pile's top card to the new backmost value.</td></tr>
     <tr><td><code>A.moveToHand(state, instanceId, ownerId)</code></td><td>Sends a card into <code>ownerId</code>'s hand face-up, clearing pile/zone attachment and rotation.</td></tr>
     <tr><td><code>A.reorderHand(state, instanceId, ownerId, targetIndex)</code></td><td>Reorders one owner's hand (<code>A.handCards</code>, stable-sorted by zIndex) by removing the card and re-inserting at the clamped 0-based <code>targetIndex</code>, then re-issuing contiguous zIndexes to the whole hand.</td></tr>
     <tr><td><code>A.flipCard(state, instanceId)</code></td><td>Toggles <code>faceUp</code> and brings the card to front.</td></tr>
