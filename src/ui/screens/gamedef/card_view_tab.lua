@@ -36,6 +36,8 @@ function T.new(editor)
   self.tabNavigatesInsideForm = false
   self.tabFocusesTitle = false -- Tab to a card also focuses its title, text selected
   self.hiddenTagGroups = {} -- tag group id -> true while its chips are collapsed
+  self.selectedSet = {} -- card -> true; the actual multi-selection
+  self.anchor = nil -- card the next Shift-click ranges from
   return self
 end
 
@@ -82,15 +84,55 @@ local function indexOf(list, item)
   return -1
 end
 
+-- Selected cards, in game.cards order (stable regardless of click order).
+function T:selectedList()
+  local out = {}
+  for _, c in ipairs(self.editor.game.cards) do
+    if self.selectedSet[c] then out[#out + 1] = c end
+  end
+  return out
+end
+
+-- Collapses the selection to just `card` (or clears it, if nil) and makes
+-- it the Shift-click anchor. Used by every single-select path.
+function T:selectOnly(card)
+  self.selectedSet = card and { [card] = true } or {}
+  self.anchor = card
+  self.selected = card
+end
+
+-- Shift-click range, Ctrl-click toggle, plain click replaces the selection.
+function T:handleCardClick(card, visible)
+  local shift = love.keyboard.isDown("lshift", "rshift")
+  local ctrl = love.keyboard.isDown("lctrl", "rctrl")
+  if shift and self.anchor then
+    local ai, ci = indexOf(visible, self.anchor), indexOf(visible, card)
+    if ai ~= -1 and ci ~= -1 then
+      local lo, hi = math.min(ai, ci), math.max(ai, ci)
+      self.selectedSet = {}
+      for i = lo, hi do self.selectedSet[visible[i]] = true end
+      self.selected = nil
+      return -- anchor stays put so repeated shift-clicks re-range from it
+    end
+  end
+  if ctrl then
+    self.selectedSet[card] = (not self.selectedSet[card]) or nil
+    self.anchor = card
+    self.selected = nil
+    return
+  end
+  self:selectOnly(card)
+end
+
 function T:selectRelative(delta)
   local visible = self:visibleCards()
   if #visible == 0 then return end
   local i = indexOf(visible, self.selected)
   if delta > 0 then
     local n = i == -1 and 1 or i + 1
-    if n <= #visible then self.selected = visible[n] end
+    if n <= #visible then self:selectOnly(visible[n]) end
   elseif i > 1 then
-    self.selected = visible[i - 1]
+    self:selectOnly(visible[i - 1])
   end
 end
 
@@ -125,13 +167,15 @@ function T:addBlankCard()
   local card = models.CardDefinition.new({ id = uuid.v4(), cardTitle = "New Card",
     setId = #candidates == 1 and candidates[1] or nil })
   game.cards[#game.cards + 1] = card
-  self.selected = card
+  self:selectOnly(card)
 end
 
 function T:deleteCard(card)
   local game = self.editor.game
   util.removeValue(game.cards, card)
   models.GameDefinition.invalidateIndex(game)
+  self.selectedSet[card] = nil
+  if self.anchor == card then self.anchor = nil end
   if self.selected == card then self.selected = nil end
 end
 
@@ -150,7 +194,7 @@ function T:drawPool(x, y, w, h, visible)
     local r = ui.region("cv:card:" .. keyOf(card), cx - PW / 2 - 4, ty - 4, PW + 8, PH + 8 + 2 + nameH, { cursor = "hand" })
     CR.draw({ def = common.displayCard(folder, card), faceUp = true, cx = cx, cy = ty + PH / 2, scale = POOL_SCALE,
       angle = CR.orientationTurns(card.orientation) * 2 * math.pi, cardBacks = cardBacks, scenarioCardBackId = game.scenarioCardBackId })
-    if card == self.selected then
+    if self.selectedSet[card] then
       -- Match the card's footprint: turned cards are landscape around the same center.
       local turned = CR.orientationTurns(card.orientation) ~= 0
       local hw, hh = turned and PH or PW, turned and PW or PH
@@ -158,7 +202,7 @@ function T:drawPool(x, y, w, h, visible)
     end
     ui.text(card.cardTitle, tx, ty + PH + 6, { size = 11, w = tileW, align = "center", maxLines = NAME_LINES })
     if r.clicked then
-      self.selected = card
+      self:handleCardClick(card, visible)
       ui.blur()
     end
   end)
@@ -201,7 +245,24 @@ function T:drawBackPane(card, x, y, w, h)
   fitCard(display, false, orientation or "portrait", self.displayBacks, scenarioCardBackId, x + 20, y + 20, w - 40, h - 40)
 end
 
-function T:drawPreview(x, y, w, h, visible)
+-- A count header plus a scrollable, non-interactive grid of the selected
+-- cards (unlike drawPool's tiles, these have no ui.region/click handling).
+function T:drawMultiPreview(selList, x, y, w, h)
+  local c = theme.c
+  ui.text(#selList .. " cards selected", x, y, { w = w, h = 24, align = "center", color = c.onSurface })
+  poolGrid.draw("cv:multipreview", selList, x, y + 28, w, h - 28, 12, function(card, i, tx, ty, tileW, cx)
+    CR.draw({ def = common.displayCard(self.editor.folderPath, card), faceUp = true, cx = cx, cy = ty + PH / 2,
+      scale = POOL_SCALE, angle = CR.orientationTurns(card.orientation) * 2 * math.pi,
+      cardBacks = self.displayBacks, scenarioCardBackId = self.editor.game.scenarioCardBackId })
+    ui.text(card.cardTitle, tx, ty + PH + 6, { size = 11, w = tileW, align = "center", maxLines = NAME_LINES })
+  end)
+end
+
+function T:drawPreview(x, y, w, h, visible, selList)
+  if #selList > 1 then
+    self:drawMultiPreview(selList, x, y, w, h)
+    return
+  end
   local c = theme.c
   local card = self.selected
   local controlsH = 8 + 40 + 28 + 8
@@ -297,6 +358,125 @@ end
 function T:confirmDelete(card)
   overlays.confirm("Delete Card", 'Delete "' .. card.cardTitle .. '"? This does not delete its image file.', "Delete",
     function() self:deleteCard(card) end)
+end
+
+-- Shown instead of drawForm when more than one card is selected. Only the
+-- fields that don't need to be unique per card -- not Title, Image or Extra
+-- Data. Each control displays the first selected card's value; changing it
+-- overwrites that field on every selected card.
+function T:drawBulkForm(cards, x, y, w, h)
+  local c = theme.c
+  local game = self.editor.game
+  local rep = cards[1]
+  local G = common.GAP
+  local off = ui.beginScroll("cv:bulkform", x, y, w, h)
+  local pad = 16
+  local fx, fw = x + pad, w - 2 * pad
+  local hw = (fw - G) / 2
+  local yy = y + pad - off
+
+  ui.text(#cards .. " cards selected", fx, yy, { w = fw, h = 28, valign = "middle", color = c.onSurfaceVariant })
+  yy = yy + 28 + G
+
+  -- Orientation and set side by side.
+  local hasSets = #game.sets > 0
+  local newOrientation = ui.dropdown("cv:bulk:orient", fx, yy, hasSets and hw or fw, common.orientationOptions,
+    rep.orientation, { label = "Orientation", h = 44 })
+  if newOrientation ~= rep.orientation then
+    for _, card in ipairs(cards) do card.orientation = newOrientation end
+  end
+  if hasSets then
+    local options = { { value = nil, label = "(none)" } }
+    for _, s in ipairs(game.sets) do options[#options + 1] = { value = s.id, label = s.name } end
+    local newSetId = ui.dropdown("cv:bulk:set", fx + hw + G, yy, hw, options, rep.setId, { label = "Set", h = 44 })
+    if newSetId ~= rep.setId then
+      for _, card in ipairs(cards) do card.setId = newSetId end
+    end
+  end
+  yy = yy + 44 + G
+
+  -- Card back, plus its orientation when Unique.
+  local backOptions = { { value = nil, label = "(Default)" } }
+  for _, b in ipairs(game.cardBacks) do backOptions[#backOptions + 1] = { value = b.id, label = b.name } end
+  backOptions[#backOptions + 1] = { value = models.uniqueCardBackId, label = "Unique" }
+  local unique = rep.cardBackId == models.uniqueCardBackId
+  local newBackId = ui.dropdown("cv:bulk:back", fx, yy, unique and hw or fw, backOptions, rep.cardBackId,
+    { label = "Card Back", h = 44 })
+  if newBackId ~= rep.cardBackId then
+    for _, card in ipairs(cards) do card.cardBackId = newBackId end
+    unique = newBackId == models.uniqueCardBackId
+  end
+  if unique then
+    local newBackOrient = ui.dropdown("cv:bulk:backorient", fx + hw + G, yy, hw, common.orientationOptions,
+      rep.uniqueBackOrientation, { label = "Back Orientation", h = 44 })
+    if newBackOrient ~= rep.uniqueBackOrientation then
+      for _, card in ipairs(cards) do card.uniqueBackOrientation = newBackOrient end
+    end
+  end
+  yy = yy + 44
+
+  -- One collapsible chip section per non-empty tag group; toggling a chip
+  -- adds/removes that tag on every selected card.
+  for _, group in ipairs(game.tagGroups) do
+    if #group.tags > 0 then
+      yy = yy + G
+      local hidden = self.hiddenTagGroups[group.id] == true
+      local on = 0
+      for _, tag in ipairs(group.tags) do if tagMatch.hasTag(rep.types, group.name, tag) then on = on + 1 end end
+      if common.collapseHeader("cv:bulk:vis:" .. group.id, group.name, fx - 4, yy, fw + 4, 32, not hidden,
+        on > 0 and (on .. " selected") or nil) then
+        self.hiddenTagGroups[group.id] = not hidden or nil
+      end
+      yy = yy + 32
+      if not hidden then
+        yy = yy + 6
+        local place, bottom = widgets.flow(fx, yy, fw, widgets.chipHeight, 8)
+        for ti, tag in ipairs(group.tags) do
+          local isOn = tagMatch.hasTag(rep.types, group.name, tag)
+          local px, py = place(widgets.chipWidth(tag, isOn))
+          if widgets.chip(tag, px, py, isOn, { id = "cv:bulk:tag:" .. group.id .. ":" .. ti }) then
+            for _, card in ipairs(cards) do
+              if isOn then
+                tagMatch.removeTag(card.types, group.name, tag)
+              else
+                card.types[#card.types + 1] = tagMatch.encode(group.name, tag)
+              end
+            end
+          end
+        end
+        yy = bottom()
+      end
+    end
+  end
+
+  local th
+  local newUnownable
+  newUnownable, th = common.toggleRow("cv:bulk:unownable", "Unownable",
+    "Always stays unowned on the table -- any player can interact with it", fx, yy, fw, rep.unownable)
+  if newUnownable ~= rep.unownable then
+    for _, card in ipairs(cards) do card.unownable = newUnownable end
+  end
+  yy = yy + th + pad
+
+  local newFreeCard
+  newFreeCard, th = common.toggleRow("cv:bulk:freecard", "Free Card",
+    "On collection-mode servers, every player always has unlimited copies", fx, yy, fw, rep.isFreeCard)
+  if newFreeCard ~= rep.isFreeCard then
+    for _, card in ipairs(cards) do card.isFreeCard = newFreeCard end
+  end
+  yy = yy + th + pad
+
+  if game.hasScenarios then
+    local newScenarioCard
+    newScenarioCard, th = common.toggleRow("cv:bulk:scenariocard", "Scenario Card",
+      "Belongs to a scenario's card pool (Card Placement / Deck Builder) instead of the regular player card pool",
+      fx, yy, fw, rep.isScenarioCard)
+    if newScenarioCard ~= rep.isScenarioCard then
+      for _, card in ipairs(cards) do card.isScenarioCard = newScenarioCard end
+    end
+    yy = yy + th + pad
+  end
+  ui.endScroll("cv:bulkform", yy + off - y)
 end
 
 function T:drawForm(card, x, y, w, h)
@@ -500,7 +680,12 @@ end
 function T:draw(x, y, w, h)
   local game = self.editor.game
   self:syncFilters()
-  if self.selected and indexOf(game.cards, self.selected) == -1 then self.selected = nil end
+  for c in pairs(self.selectedSet) do
+    if indexOf(game.cards, c) == -1 then self.selectedSet[c] = nil end
+  end
+  if self.anchor and indexOf(game.cards, self.anchor) == -1 then self.anchor = nil end
+  local selList = self:selectedList()
+  self.selected = #selList == 1 and selList[1] or nil
   self.displayBacks = common.displayCardBacks(self.editor.folderPath, game.cardBacks)
 
   local yy = filterBar.drawFilters("cv", self.filters, game, x + 12, y, w - 24, { compact = true,
@@ -526,7 +711,7 @@ function T:draw(x, y, w, h)
   end
   local px = d1x + DIVIDER
   ui.pushClip(px, yy, previewW, bh)
-  self:drawPreview(px, yy, previewW, bh, visible)
+  self:drawPreview(px, yy, previewW, bh, visible, selList)
   ui.popClip()
   local d2x = px + previewW
   dx = splitHandle("cv:split2", d2x, yy, bh)
@@ -537,8 +722,10 @@ function T:draw(x, y, w, h)
   end
   local fx = d2x + DIVIDER
   ui.pushClip(fx, yy, formW, bh)
-  if self.selected then
-    self:drawForm(self.selected, fx, yy, formW, bh)
+  if #selList == 1 then
+    self:drawForm(selList[1], fx, yy, formW, bh)
+  elseif #selList > 1 then
+    self:drawBulkForm(selList, fx, yy, formW, bh)
   else
     ui.text("Select a card to edit", fx, yy, { w = formW, h = bh, align = "center", valign = "middle", color = theme.c.onSurfaceVariant })
   end

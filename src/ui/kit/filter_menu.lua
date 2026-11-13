@@ -6,8 +6,10 @@ local theme = require("src.ui.kit.theme")
 
 local M = {}
 
-local MAX_PER_COLUMN = 20
+local MAX_PER_COLUMN = 15   -- max option rows per column before wrapping to a new column
+local MAX_COLUMNS = 3       -- max columns visible at once; beyond this we paginate
 local ROW_H = 36
+local PAGE_ROW_H = 36       -- height of the pager row (icon buttons sized 32 to match row rhythm)
 
 local function triggerButton(id, x, y, label, open)
   local w = ui.textWidth(label, 14, "medium") + 24 + 24
@@ -63,13 +65,25 @@ function M.multiSelect(id, x, y, label, options, selected, excluded)
   if clicked then st.open = not st.open end
   if not st.open then return w end
 
-  local columns = math.max(1, math.ceil(#options / MAX_PER_COLUMN))
+  local perPage = MAX_PER_COLUMN * MAX_COLUMNS
+  local totalPages = math.max(1, math.ceil(#options / perPage))
+  st.page = math.min(math.max(st.page or 1, 1), totalPages)
+  local paged = totalPages > 1
+
   local colW = 0
   for _, o in ipairs(options) do colW = math.max(colW, ui.textWidth(o.name, 14)) end
   colW = colW + 48 + (excluded and 40 or 0) + 16
-  local rows = math.min(#options, MAX_PER_COLUMN)
+
+  local columns, rows
+  if paged then
+    columns, rows = MAX_COLUMNS, MAX_PER_COLUMN
+  else
+    columns = math.max(1, math.ceil(#options / MAX_PER_COLUMN))
+    rows = math.min(#options, MAX_PER_COLUMN)
+  end
+
   local pw = math.max(220, columns * colW + (columns - 1) * 16 + 16)
-  local ph = 8 + ROW_H + 9 + rows * ROW_H + 8
+  local ph = 8 + ROW_H + 9 + (paged and (PAGE_ROW_H + 4) or 0) + rows * ROW_H + 8
   openPopup(st, x, y, w, pw, ph, function(px, py, c)
     local allSelected = #options > 0 and count == #options
     local yy = py + 8
@@ -83,9 +97,33 @@ function M.multiSelect(id, x, y, label, options, selected, excluded)
     yy = yy + ROW_H + 4
     ui.divider(px, yy, pw, c.outlineVariant)
     yy = yy + 5
-    for i, o in ipairs(options) do
-      local col = math.floor((i - 1) / MAX_PER_COLUMN)
-      local row = (i - 1) % MAX_PER_COLUMN
+    if paged then
+      local pageLabel = "Page " .. st.page .. " / " .. totalPages
+      local labelW = math.max(56, ui.textWidth(pageLabel, 12) + 12)
+      local rowW = 32 + labelW + 32
+      local rx = px + (pw - rowW) / 2
+      if ui.iconButton("chevron_left", rx, yy, {
+        id = id .. ":prevpage", size = 32, iconSize = 18, tooltip = "Previous Page", disabled = st.page <= 1,
+      }) then
+        st.page = st.page - 1
+      end
+      ui.text(pageLabel, rx + 32, yy, {
+        w = labelW, h = 32, size = 12, align = "center", valign = "middle", color = c.onSurfaceVariant,
+      })
+      if ui.iconButton("chevron_right", rx + 32 + labelW, yy, {
+        id = id .. ":nextpage", size = 32, iconSize = 18, tooltip = "Next Page", disabled = st.page >= totalPages,
+      }) then
+        st.page = st.page + 1
+      end
+      yy = yy + PAGE_ROW_H + 4
+    end
+    local startIdx = (st.page - 1) * perPage + 1
+    local endIdx = math.min(#options, st.page * perPage)
+    for i = startIdx, endIdx do
+      local o = options[i]
+      local pageIdx = i - startIdx
+      local col = math.floor(pageIdx / MAX_PER_COLUMN)
+      local row = pageIdx % MAX_PER_COLUMN
       local ox, oy = px + 8 + col * (colW + 16), yy + row * ROW_H
       local rowW = colW - (excluded and 40 or 0)
       local rr = ui.region(id .. ":o" .. i, ox, oy, rowW, ROW_H, { cursor = "hand" })
